@@ -1,0 +1,7 @@
+
+project vwm ;
+
+exe vwm : src/main.cpp /libuv//libuv /libudev//libudev /ftk//ftk /libinput//libinput : <include>include <cxxflags>-std=c++17 <linkflags>-lstdc++fs
+ ;
+
+stage stage : vwm ;
