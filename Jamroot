@@ -1,7 +1,11 @@
 
 project vwm ;
 
-exe vwm : src/main.cpp /libuv//libuv /libudev//libudev /ftk//ftk /libinput//libinput : <include>include <cxxflags>-std=c++17 <linkflags>-lstdc++fs
+exe vwm : src/backend/libinput/libinput.cpp src/main.cpp xdg-shell/xdg-shell-protocol.c /vulkan//vulkan /x11//x11 /libuv//libuv /xkbcommon//xkbcommon
+ /libdrm//libdrm /libkms//libkms /libudev//libudev /libinput//libinput /ftk//ftk /fastdraw//fastdraw /hb//hb /ft2//ft2
+ /wayland-client//wayland-client /wayland-scanner//wayland-scanner /wayland-protocols//wayland-protocols
+ /wayland-server//wayland-server
+ : <include>include <cxxflags>-std=c++17 <linkflags>-lstdc++fs <include>xdg-shell
  ;
 
 stage stage : vwm ;
