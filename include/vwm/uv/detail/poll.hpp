@@ -25,7 +25,7 @@ void wait (uv_loop_t* loop, int fd, int events, F function)
 		    std::cout << "event " << event << std::endl;
                     if (status == 0)
                     {
-                      (*static_cast<F*>(handle->data))();
+                      (*static_cast<F*>(handle->data))(handle);
                     }
                   };
   uv_poll_start (handle, UV_READABLE, cb);
