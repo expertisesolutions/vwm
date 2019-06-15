@@ -77,79 +77,76 @@ int main(int argc, char** argv)
   for (auto&& interface_ : doc.child ("protocol").children ("interface"))
   {
     unsigned int event_index = 0;
-    for (auto&& member : interface_.children ())
+    for (auto&& member : interface_.children ("event"))
     {
-      if (!strcmp(member.name(), "event"))
+      out << "  void " << interface_.attribute("name").value() << "_" << member.attribute("name").value() << "(uint32_t obj";
+      unsigned int arg_size = 0;
       {
-        out << "  void " << interface_.attribute("name").value() << "_" << member.attribute("name").value() << "(uint32_t obj";
-        unsigned int arg_size = 0;
+        for (auto&& arg : member.children("arg"))
         {
-          for (auto&& arg : member.children("arg"))
-          {
-            out << ", ";
-            vwm::protocol::generate_arg_decl (out, arg.attribute("type").value(), arg_size++);
-          }
+          out << ", ";
+          vwm::protocol::generate_arg_decl (out, arg.attribute("type").value(), arg_size++);
         }
-        out << ")\n";
-        out << "  {\n";
-
-        auto generate_values_suffix_code
-          = [] (std::ostream& out, unsigned int fixed_size_values_index, unsigned int fixed_size_values_size
-                , unsigned int argument_index, std::optional<unsigned int> new_id_subitem)
-            {
-              auto tabs = "      ";
-              out << tabs << "values1.size += sizeof (values" << fixed_size_values_index << ");\n";
-              if (fixed_size_values_index != fixed_size_values_size)
-                out << tabs << "values1.size += vwm::wayland::marshall_size(arg" << argument_index << ");\n";
-            };
-        
-        ////
-        unsigned int fixed_size_values_size = 1;
-        vwm::protocol::generate_values (out, member, arg_size, fixed_size_values_size
-                                        , "    "
-                                        , "      std::uint32_t from;\n"
-                                          "      std::uint16_t opcode;\n"
-                                          "      std::uint16_t size;\n"
-                                        , "obj, " + std::to_string(event_index) + ", 0"
-                                        , generate_values_suffix_code
-                                        , true);
-
-        // now lets send
-        {
-          unsigned int fixed_size_values_index = 1;
-          unsigned int i = 0;
-          bool is_last = false;
-          for (auto&& arg : member.children("arg"))
-          {
-            auto type = arg.attribute("type").value();
-            if (vwm::protocol::is_arg_fixed_size(type))
-              ++i;
-            else // not fixed
-            {
-              out << "    std::cout << \"sending \" << sizeof(values" << fixed_size_values_index << ") << std::endl;\n";
-              out << "    send (this->get_fd(), &values" << fixed_size_values_index << ", sizeof(values" << fixed_size_values_index << "), 0);\n";
-              out << "    vwm::wayland::marshall_send (this->get_fd(), arg" << i << ");\n";
-              
-              i++;
-
-              is_last = (i == arg_size);
-              if (!is_last)
-                fixed_size_values_index++;
-            }
-          }
-
-          if (!is_last)
-          {
-            out << "    std::cout << \"sending \" << sizeof(values" << fixed_size_values_index << ") << std::endl;\n";
-            out << "    send (this->get_fd(), &values" << fixed_size_values_index << ", sizeof(values" << fixed_size_values_index << "), 0);\n";
-          }
-          out << "    std::cout << \"header has size \" << values1.size << \"\\n\";" << std::endl;
-        }
-
-        
-        out << "  }\n";
-        ++event_index;
       }
+      out << ")\n";
+      out << "  {\n";
+
+        // auto generate_values_suffix_code
+        //   = [] (std::ostream& out, unsigned int fixed_size_values_index, unsigned int fixed_size_values_size
+        //         , unsigned int argument_index, std::optional<unsigned int> new_id_subitem)
+        //     {
+        //       auto tabs = "      ";
+        //       out << tabs << "values1.size += sizeof (values" << fixed_size_values_index << ");\n";
+        //       if (fixed_size_values_index != fixed_size_values_size)
+        //         out << tabs << "values1.size += vwm::wayland::marshall_size(arg" << argument_index << ");\n";
+        //     };
+        
+        // ////
+        // unsigned int fixed_size_values_size = 1;
+        // vwm::protocol::generate_values (out, member, arg_size, fixed_size_values_size
+        //                                 , "    "
+        //                                 , "      std::uint32_t from;\n"
+        //                                   "      std::uint16_t opcode;\n"
+        //                                   "      std::uint16_t size;\n"
+        //                                 , "obj, " + std::to_string(event_index) + ", 0"
+        //                                 , generate_values_suffix_code
+        //                                 , true);
+
+        // // now lets send
+        // {
+        //   unsigned int fixed_size_values_index = 1;
+        //   unsigned int i = 0;
+        //   bool is_last = false;
+        //   for (auto&& arg : member.children("arg"))
+        //   {
+        //     auto type = arg.attribute("type").value();
+        //     if (vwm::protocol::is_arg_fixed_size(type))
+        //       ++i;
+        //     else // not fixed
+        //     {
+        //       out << "    std::cout << \"sending \" << sizeof(values" << fixed_size_values_index << ") << std::endl;\n";
+        //       out << "    send (this->get_fd(), &values" << fixed_size_values_index << ", sizeof(values" << fixed_size_values_index << "), 0);\n";
+        //       out << "    vwm::wayland::marshall_send (this->get_fd(), arg" << i << ");\n";
+              
+        //       i++;
+
+        //       is_last = (i == arg_size);
+        //       if (!is_last)
+        //         fixed_size_values_index++;
+        //     }
+        //   }
+
+        //   if (!is_last)
+        //   {
+        //     out << "    std::cout << \"sending \" << sizeof(values" << fixed_size_values_index << ") << std::endl;\n";
+        //     out << "    send (this->get_fd(), &values" << fixed_size_values_index << ", sizeof(values" << fixed_size_values_index << "), 0);\n";
+        //   }
+        //   out << "    std::cout << \"header has size \" << values1.size << \"\\n\";" << std::endl;
+        // }
+
+        
+      out << "  }\n";
+      ++event_index;
     }
   }
   

@@ -68,54 +68,54 @@ struct print_decl
 {
   std::ostream* os;
   unsigned int i;
-  std::string suffix;
+  std::string suffix, prefix;
 
   void operator()(uint_tag) const
   {
-    *os << "std::uint32_t arg" << i << suffix;
+    *os << "std::uint32_t " << prefix << "arg" << i << suffix;
   }
 
   void operator()(int_tag) const
   {
-    *os << "std::int32_t arg" << i << suffix;
+    *os << "std::int32_t " << prefix << "arg" << i << suffix;
   }
 
   void operator()(fixed_tag) const
   {
-    *os << "vwm::wayland::fixed arg" << i << suffix;
+    *os << "vwm::wayland::fixed " << prefix << "arg" << i << suffix;
   }
 
   void operator()(string_tag) const
   {
-    *os << "std::string_view arg" << i << suffix;
+    *os << "std::string_view " << prefix << "arg" << i << suffix;
   }
 
   void operator()(object_tag) const
   {
-    *os << "std::uint32_t arg" << i << suffix;
+    *os << "std::uint32_t " << prefix << "arg" << i << suffix;
   }
 
   void operator()(new_id_tag) const
   {
-    *os << "std::uint32_t arg" << i << suffix;
+    *os << "std::uint32_t " << prefix << "arg" << i << suffix;
   }
 
   void operator()(array_tag) const
   {
-    *os << "vwm::wayland::array arg" << i << suffix;
+    *os << "vwm::wayland::array " << prefix << "arg" << i << suffix;
   }
 
   void operator()(fd_tag) const
   {
-    *os << "int arg" << i << suffix;
+    *os << "int " << prefix << "arg" << i << suffix;
   }
 
   typedef void result_type;
 };
 
-inline void generate_arg_decl (std::ostream& os, std::string type, unsigned int i, std::string suffix = "")
+inline void generate_arg_decl (std::ostream& os, std::string type, unsigned int i, std::string suffix = "", std::string prefix = "")
 {
-  select_arg (type, print_decl{&os, i, suffix});
+  select_arg (type, print_decl{&os, i, suffix, prefix});
 }
 
 struct is_arg_fixed_size_visitor
@@ -157,7 +157,15 @@ void generate_values (std::ostream& out, pugi::xml_node member, unsigned int arg
                       , std::string header_constr
                       , std::function<void(std::ostream&, unsigned int, unsigned int, unsigned int, std::optional<unsigned int>)> generate_values_suffix_code
                       , bool generate_constructors = true);
+enum class value_generator_separation
+{
+  continue_
+  , separate
+};
 
+void generate_values_type_definition (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args, std::string tabs
+                                      , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator);
+    
 inline
 void value_constructor (std::ostream& out, unsigned int fixed_size_values_index, unsigned int first_from_value
                         , pugi::xml_node member, std::string header_args)
@@ -190,6 +198,8 @@ void value_constructor (std::ostream& out, unsigned int fixed_size_values_index,
 
 void generate_process_message (std::ostream& out, pugi::xml_document& doc);
 
+    void generate_arguments_enumeration (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args);
+    
 } }
 
 #endif

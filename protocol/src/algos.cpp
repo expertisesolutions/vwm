@@ -18,9 +18,188 @@
 #include <cstring>
 #include <algorithm>
 #include <map>
+#include <cassert>
 
 namespace vwm { namespace protocol {
 
+void generate_for_each_value (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args, std::string tabs
+                                        , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator)
+{
+  auto first = args.begin()
+    , last = args.end();
+  for (;first != last; ++first)
+  {
+    while (embedded_generator (*first) == value_generator_separation::separate);
+  }
+}
+    
+void generate_values_type_definition (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args, std::string tabs
+                                      , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator)
+{
+  unsigned i = 0;
+  out << tabs << "struct values" << i << "\n";
+  out << tabs << "{\n";
+
+  generate_for_each_value
+    (out, args, tabs
+     , [&] (auto arg)
+       {
+         auto r = embedded_generator (arg);
+         if (r == value_generator_separation::separate)
+         {
+           out << tabs << "};\n";
+           out << tabs << "struct values" << ++i << "\n";
+           out << tabs << "{\n";
+         }
+         return r;
+       });
+  out << tabs << "};\n";
+}
+
+void generate_request_case_value_definition (std::ostream& out
+                                             , unsigned& value_index
+                                             , unsigned& arg_index
+                                             // , pugi::xml_named_node_iterator arg_first
+                                             // , pugi::xml_named_node_iterator arg_last
+                                             , std::string tabs
+                                             , pugi::xml_node arg)
+{
+  auto type = arg.attribute("type").value();
+  if (vwm::protocol::is_arg_fixed_size(type)
+      && !(arg.attribute("interface").empty() && !strcmp(type, "new_id")))
+  {
+    out << tabs;
+    generate_arg_decl (out, type, arg_index, "", "& ");
+    out << " = values" << value_index << ".arg" << arg_index << ";\n";
+    
+    arg_index++;
+  }
+  else if (arg.attribute("interface").empty() && !strcmp(type, "new_id"))
+  {
+    // interface
+    out << tabs;
+    generate_arg_decl (out, "string", arg_index, "");
+    out << ";\n";
+    
+    arg_index++;
+    value_index++;
+    out << tabs << "struct values" << value_index << " values" << value_index << ";\n";
+    out << tabs << "if constexpr (std::is_empty<struct values" << value_index << ">::value)\n";
+    out << tabs << "{\n";
+    out << tabs << "  std::memcpy(&values" << value_index << ", payload.data() + offset, sizeof(values" << value_index << "));\n";
+    out << tabs << "}\n";
+
+    out << tabs;
+    generate_arg_decl (out, "uint", arg_index, "", "& ");
+    out << " = values" << value_index << ".arg" << arg_index << ";\n";
+    arg_index++;
+
+    out << tabs;
+    generate_arg_decl (out, "new_id", arg_index, "", "& ");
+    out << " = values" << value_index << ".arg" << arg_index << ";\n";
+
+    arg_index++;
+  }
+  else
+  {
+    out << tabs;
+    generate_arg_decl (out, type, arg_index, "");
+    out << ";\n";
+
+    arg_index++;
+    value_index++;
+    out << tabs << "struct values" << value_index << " values" << value_index << ";\n";
+  }
+}
+
+void generate_request_argument (std::ostream& out, unsigned& arg_index
+                                , std::string tabs, pugi::xml_node arg)
+{
+  auto type = arg.attribute("type").value();
+  if (vwm::protocol::is_arg_fixed_size(type)
+      && !(arg.attribute("interface").empty() && !strcmp(type, "new_id")))
+  {
+    out << ", arg" << arg_index;
+    
+    arg_index++;
+  }
+  else if (arg.attribute("interface").empty() && !strcmp(type, "new_id"))
+  {
+    // interface
+    out << ", arg" << arg_index;
+    
+    arg_index++;
+
+    out << ", arg" << arg_index;
+
+    arg_index++;
+
+    out << ", arg" << arg_index;
+
+    arg_index++;
+  }
+  else
+  {
+    out << ", arg" << arg_index;
+
+    arg_index++;
+  }
+}
+    
+value_generator_separation generate_request_case_values_type_definition (std::ostream& out, bool& separated
+                                                                         , unsigned& i, pugi::xml_named_node_iterator arg_first
+                                                                         , pugi::xml_named_node_iterator arg_last
+                                                                         , std::string tabs
+                                                                         , pugi::xml_node arg)
+{
+  auto type = arg.attribute("type").value();
+  if (vwm::protocol::is_arg_fixed_size(type)
+      && !(arg.attribute("interface").empty() && !strcmp(type, "new_id")))
+  {
+    out << tabs << "  ";
+    generate_arg_decl (out, type, i++, "");
+    out << ";\n";
+    
+    return vwm::protocol::value_generator_separation::continue_;
+  }
+  // special case when no interface parameter but a new_id, insert interface and version
+  else if (arg.attribute("interface").empty() && !strcmp(type, "new_id"))
+  {
+    if (separated)
+    {
+      separated = false;
+             
+      out << tabs << "  ";
+      generate_arg_decl (out, "uint", i++, "");
+      out << ";\n";
+      out << tabs << "  ";
+      generate_arg_decl (out, "new_id", i++, "");
+      out << ";\n";
+      return vwm::protocol::value_generator_separation::continue_;
+    }
+    else
+    {
+      i++; // for interface
+      separated = true;
+      return vwm::protocol::value_generator_separation::separate;
+    }
+  }
+  else
+  {
+    if (separated)
+    {
+      separated = false;
+      return vwm::protocol::value_generator_separation::continue_;
+    }
+    else
+    {
+      ++i;
+      separated = true;
+      return vwm::protocol::value_generator_separation::separate;
+    }
+  }
+}
+    
 void generate_process_message_request_case (std::ostream& out, pugi::xml_node member
                                             , unsigned int member_index
                                             , std::string interface_name)
@@ -30,136 +209,51 @@ void generate_process_message_request_case (std::ostream& out, pugi::xml_node me
   out << "          case " << member_index << ":{\n";
   auto tabs = "            ";
   out << tabs << "std::cout << \"op " << member.attribute("name").value() << "\\n\";\n";
-  out << tabs << "unsigned offset = 0;\n";
+  std::cout << "op " << member.attribute("name").value() << std::endl;
 
   auto args = member.children ("arg");
-  unsigned int argument_count = std::distance (args.begin(), args.end());
-  auto arg_first = args.begin(), arg_last = args.end();
-  bool contains_variable_sized_argument
-    = std::find_if
-    (arg_first, arg_last
-     , [] (auto node) -> bool
-       {
-         auto type = node.attribute("type").value();
-         return !strcmp(type, "new_id")
-           || !strcmp(type, "string")
-           || !strcmp(type, "array");
-       }) != arg_last;
-  bool contains_fd
-    = std::find_if
-    (arg_first, arg_last
-     , [] (auto node) -> bool
-       {
-         auto type = node.attribute("type").value();
-         return !strcmp(type, "fd");
-       }) != arg_last;
-
-  if (!contains_variable_sized_argument && !contains_fd)
   {
-    if (argument_count != 0)
     {
-      out << tabs << "struct arguments\n";
-      out << tabs << "{\n";
-
+      bool separated = false;
       unsigned int i = 0;
-      for (auto&& arg : member.children("arg"))
-      {
-        out << tabs << "  ";
-        vwm::protocol::generate_arg_decl (out, arg.attribute("type").value(), i++);
-        out << ";\n";
-      }
+      auto arg_first = args.begin(), arg_last = args.end();
 
-      out << tabs << "} arguments;\n\n";
-      out << tabs << "if (payload.size() == sizeof(arguments))\n";
+      generate_values_type_definition
+        (out, args, "            "
+         , [&] (pugi::xml_node arg) -> vwm::protocol::value_generator_separation
+           {
+             return generate_request_case_values_type_definition
+               (out, separated, i, arg_first, arg_last, "            ", arg);
+           });
+    }
+    out << tabs << "unsigned offset = 0;\n";
+    {
+      unsigned value_index = 0, arg_index = 0;
+      out << tabs << "struct values" << value_index << " values" << value_index << ";\n";
+      out << tabs << "if constexpr (std::is_empty<struct values" << value_index << ">::value)\n";
       out << tabs << "{\n";
-      out << tabs << "  std::memcpy(&arguments, payload.data(), sizeof(arguments));\n";
-    }
-    else
-    {
-      out << tabs << "if (payload.size() == 0)\n";
-      out << tabs << "{\n";
-    }
-    out << tabs << "  this->" << interface_name << "_"
-        << member.attribute("name").value() << "(object";
-    if (argument_count != 0)
-    {
-      unsigned int i = 0;
-      for (auto&& arg : member.children("arg"))
+      out << tabs << "  std::memcpy(&values" << value_index << ", payload.data() + offset, sizeof(values" << value_index << "));\n";
+      out << tabs << "  offset += sizeof(values" << value_index << ");\n";
+      out << tabs << "}\n";
+
+      for (auto&& arg : args)
       {
-        static_cast<void>(arg);
-        out << ", arguments.arg" << i++;
+        generate_request_case_value_definition
+          (out, value_index, arg_index, "            ", arg);
       }
     }
-    out << ");\n";
-    out << tabs << "}\n";
-    out << tabs << "else\n";
-    out << tabs << "{\n";
-    out << tabs << "  std::cout << \"payload size \" << payload.size() << \" arguments has size ";
-    if (argument_count != 0)
-      out << "\" << sizeof(arguments) << std::endl;\n";
-    else
-      out << " 0\" << std::endl;\n";
-    out << tabs << "  throw -1; // for now, should just call a function instead of throwing\n";
-    out << tabs << "}\n";
-  }
-  else
-  {
-    std::map<unsigned, unsigned> argument_values_map;
-    auto generate_values_suffix_code
-      = [&] (std::ostream& out, unsigned int fixed_size_values_index, unsigned int fixed_size_values_size
-             , unsigned int argument_index, std::optional<unsigned int> new_id_subitem)
-    {
-      auto tab = "            ";
-      auto memcpy_lambda
-        = [&] ()
-        {
-          out << tab << "if constexpr (!std::is_empty<struct values" << fixed_size_values_index << ">::value)\n";
-          out << tab << "{\n";
-          out << tab << "  std::memcpy(&values" << fixed_size_values_index << ", payload.data() + offset, sizeof(struct values" << fixed_size_values_index
-              << "));\n";
-          out << tab << "}\n";
-        };
-      if (new_id_subitem)
-      {
-        if (*new_id_subitem == 0)
-        {
-          //out << "interface" << std::endl;
-          memcpy_lambda();
-          out << tab << "std::string_view arg" << argument_index << "_interface;\n";
-          out << tab << "vwm::wayland::unmarshall_copy (std::string_view{payload.data() + offset, payload.size() - offset}, arg"
-              << argument_index << "_interface);\n";
-          out << tab << "offset += vwm::wayland::unmarshall_size (std::string_view{payload.data() + offset, payload.size() - offset}, arg"
-              << argument_index << "_interface);\n";
-          out << tab << "std::uint32_t arg" << argument_index << "_version = 0;\n";
-          out << tab << "if (payload.size() < offset + sizeof(std::uint32_t)))\n";
-          out << tab << "{\n";
-          out << tab << "  throw -1;\n";
-          out << tab << "}\n";
-          out << tab << "else\n";
-          out << tab << "  std::memcpy(&"", payload.data());\n";
-        }
-        else if (*new_id_subitem == 1)
-        {
-          
-        }
-        //   out << "version" << std::endl;
-        // else if (*new_id_subitem == 2)
-        //   out << "new_id" << std::endl;
-      }
-      else
-      {
-        argument_values_map.insert(std::make_pair(argument_index, fixed_size_values_index));
-        memcpy_lambda();
-      }
-    };
-    
-    unsigned int fixed_size_values_last;
-    generate_values (out, member, argument_count, fixed_size_values_last, "            ", "", "", generate_values_suffix_code, false);
-    
-    //bool variable_sized_offset = false;
-    //std::size_t offset = 0;
   }
 
+  out << "            this->" << interface_name << "_" << member.attribute("name").value() << "(object";
+  {
+    unsigned int arg_index = 0;
+    for (auto&& arg : args)
+    {
+      generate_request_argument
+        (out, arg_index, "            ", arg);
+    }
+  }
+  out << ");\n";
   out << "            break;}\n";
 }
     
@@ -206,6 +300,7 @@ void generate_values (std::ostream& out, pugi::xml_node member
                       , bool generate_constructors)
 {
   unsigned int fixed_size_values_index = 1;
+  fixed_size_values_last = -1;
   unsigned int first_from_value = 0;
   //out << "    vwm::wayland::sbo<char> buffer;\n";
   out << tabs << "struct values1\n";
@@ -213,14 +308,6 @@ void generate_values (std::ostream& out, pugi::xml_node member
   out << header_decl_prefix;
 
   auto args = member.children("arg");
-  auto arg_first = args.begin(), arg_last = args.end();
-
-  bool has_interface_param
-    = std::find_if (arg_first, arg_last
-                    , [] (auto arg)
-                      {
-                        return !strcmp(arg.attribute("name").value(), "interface");
-                      }) != arg_last;
 
   unsigned int i = 0;
   bool is_last = false;
@@ -230,6 +317,9 @@ void generate_values (std::ostream& out, pugi::xml_node member
          , bool composed = false)
     {
        out << tabs << "} values" << fixed_size_values_index;
+       is_last = (i == arg_size);
+       if (is_last)
+         fixed_size_values_last = fixed_size_values_index;
        if (generate_constructors)
          value_constructor(out, fixed_size_values_index, first_from_value, member
                            , header_constr_prefix);
@@ -246,12 +336,14 @@ void generate_values (std::ostream& out, pugi::xml_node member
 
        i++;
        first_from_value = i;
-       is_last = (i == arg_size);
        if (!is_last)
        {
          fixed_size_values_index++;
          out << tabs << "struct values" << fixed_size_values_index << "\n";
          out << tabs << "{\n";
+       }
+       else
+       {
        }
     };
   
@@ -259,7 +351,7 @@ void generate_values (std::ostream& out, pugi::xml_node member
    {
      auto type = arg.attribute("type").value();
      if (vwm::protocol::is_arg_fixed_size(type)
-         && !(!has_interface_param && !strcmp(type, "new_id")))
+         && !(arg.attribute("interface").empty() && !strcmp(type, "new_id")))
      {
        out << tabs << "  ";
        generate_arg_decl (out, type, i, "_");

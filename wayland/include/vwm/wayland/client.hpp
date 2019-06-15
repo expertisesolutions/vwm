@@ -236,7 +236,7 @@ struct client
     server_protocol().wl_registry_global (new_id, 5, "xdg_wm_base", 2);
   }
 
-  void wl_registry_bind (object_type obj, uint32_t global_id, uint32_t new_id)
+  void wl_registry_bind (object_type obj, uint32_t global_id, std::string_view interface, uint32_t version, uint32_t new_id)
   {
     std::cout << "called bind?" << std::endl;
   }
@@ -246,6 +246,10 @@ struct client
   }
 
   void wl_compositor_create_region (object_type obj, uint32_t new_id)
+  {
+  }
+
+  void wl_shm_create_pool (object_type obj, uint32_t arg0, int arg1, uint32_t arg2)
   {
   }
 
@@ -265,6 +269,14 @@ struct client
   {
   }
 
+  void wl_data_offer_accept (object_type obj, std::uint32_t arg0, std::string_view arg1)
+  {
+  }
+
+  void wl_data_offer_receive (object_type obj, std::string_view arg0, int arg1)
+  {
+  }
+
   void wl_data_offer_destroy (object_type obj)
   {
   }
@@ -275,6 +287,7 @@ struct client
 
   void wl_data_offer_set_actions (object_type obj, uint32_t, uint32_t) {}
   void wl_data_source_set_actions (object_type obj, uint32_t) {}
+  void wl_data_source_offer (object_type obj, std::string_view) {}
   void wl_data_source_destroy (object_type obj) {}
   void wl_data_device_start_drag (object_type obj, uint32_t, uint32_t, uint32_t, uint32_t) {}
   void wl_data_device_set_selection (object_type obj, uint32_t, uint32_t) {}
@@ -321,6 +334,8 @@ struct client
   void wl_subsurface_set_sync (object_type obj) {}
   void wl_subsurface_set_desync (object_type obj) {}
   void wl_shell_surface_set_maximized (object_type obj, std::uint32_t) {}
+  void wl_shell_surface_set_title (object_type obj, std::string_view title) {}
+  void wl_shell_surface_set_class (object_type obj, std::string_view arg0) {}
 };
     
 } }

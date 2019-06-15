@@ -35,6 +35,10 @@ std::size_t marshall_size (array v)
 {
   return 0;
 }
+std::size_t marshall_size (std::uint32_t)
+{
+  return sizeof(std::uint32_t);
+}
 void marshall_send (int fd, std::string_view v)
 {
   sbo<char> buffer;
@@ -49,6 +53,15 @@ void marshall_send (int fd, std::string_view v)
 }
 void marshall_send (int fd, array v)
 {
+}
+
+void unmarshall_copy (std::string_view payload, std::string_view& string)
+{
+}
+
+unsigned unmarshall_size (std::string_view payload, std::string_view string)
+{
+  return 0;
 }
     
 } }
