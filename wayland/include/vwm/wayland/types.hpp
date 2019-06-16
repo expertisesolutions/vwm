@@ -53,14 +53,25 @@ void marshall_send (int fd, std::string_view v)
 }
 void marshall_send (int fd, array v)
 {
+  std::abort();
 }
 
-void unmarshall_copy (std::string_view payload, std::string_view& string)
+void unmarshall (std::string_view& string, std::string_view payload)
 {
+  std::uint32_t size;
+  if (payload.size() >= sizeof(size))
+  {
+    std::memcpy (&size, payload.data(), sizeof(size));
+    if (payload.size() >= sizeof(size) + size)
+    {
+      string = std::string_view {payload.data() + sizeof(size), size-1 /* NUL-terminated */};
+    }
+  }
 }
 
 unsigned unmarshall_size (std::string_view payload, std::string_view string)
 {
+  std::abort();
   return 0;
 }
     

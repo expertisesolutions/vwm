@@ -80,9 +80,11 @@ int main(int argc, char** argv)
     for (auto&& member : interface_.children ("event"))
     {
       out << "  void " << interface_.attribute("name").value() << "_" << member.attribute("name").value() << "(uint32_t obj";
+      std::cout << "event " << member.attribute("name").value() << std::endl;
       unsigned int arg_size = 0;
+      auto args = member.children("arg");
       {
-        for (auto&& arg : member.children("arg"))
+        for (auto&& arg : args)
         {
           out << ", ";
           vwm::protocol::generate_arg_decl (out, arg.attribute("type").value(), arg_size++);
@@ -90,7 +92,109 @@ int main(int argc, char** argv)
       }
       out << ")\n";
       out << "  {\n";
+      out << "    std::cout << \"sending event " << member.attribute("name").value() << "\" << std::endl;\n";
 
+      auto tabs = "    ";
+
+      out << tabs << "struct header\n";
+      out << tabs << "{\n";
+      out << tabs << "  std::uint32_t from_;\n";
+      out << tabs << "  std::uint16_t opcode_;\n";
+      out << tabs << "  std::uint16_t size_;\n";
+      out << tabs << "};\n";
+      out << tabs << "struct header header{obj, " << event_index << ", sizeof(header)};\n";
+
+      {
+        bool separated = false;
+        unsigned int i = 0;
+
+        vwm::protocol::generate_values_type_definition
+          (out, args, tabs, [&] (pugi::xml_node arg) { return vwm::protocol::generate_event_value_members (out, i, separated, tabs, arg); });
+      }
+
+      {
+        bool pred_taken = false;
+        unsigned value_index = 0, arg_index = 0;
+        out << tabs << "if constexpr (!std::is_empty<struct values" << value_index << ">::value)\n";
+        out << tabs << "  header.size_ += sizeof (struct values" << value_index << ");\n";
+        out << tabs << "struct values" << value_index << " values" << value_index << "{";
+
+        for (auto&& arg : args)
+        {
+          vwm::protocol::generate_event_value_argument
+            (out, value_index, arg_index, pred_taken, 0, arg);
+        }
+
+        out << "};\n";
+        value_index = arg_index = 0;
+        bool separate = false;
+        vwm::protocol::generate_for_each_value
+          (args
+           , [&] (pugi::xml_node arg)
+             {
+               auto type = arg.attribute("type").value();
+               if (vwm::protocol::is_arg_fixed_size(type))
+                 return ++arg_index, vwm::protocol::value_generator_separation::continue_;
+               else if (!separate)
+               {
+                 out << tabs << "header.size_ += vwm::wayland::marshall_size (arg" << arg_index << ");\n";
+                 ++arg_index;
+                 ++value_index;
+
+                 out << tabs << "if constexpr (!std::is_empty<struct values" << value_index << ">::value)\n";
+                 out << tabs << "  header.size_ += sizeof (struct values" << value_index << ");\n";
+                 out << tabs << "struct values" << value_index << " values" << value_index << "{";
+                 unsigned arg_index_ = 0, value_index_ = 0;
+                 bool pred_taken = false;
+                 for (auto&& arg : args)
+                 {
+                   std::cout << "generating constructor arguments for event vi " << value_index_ << " ai " << arg_index_ << std::endl;
+                   vwm::protocol::generate_event_value_argument
+                     (out, value_index_, arg_index_, pred_taken, value_index, arg);
+                 }
+
+                 out << "};\n";
+
+                 separate = true;
+                 return vwm::protocol::value_generator_separation::separate;
+               }
+               else
+                 return separate = false,vwm::protocol::value_generator_separation::continue_;
+             });
+      }
+      {
+        // generate sends
+        unsigned value_index = 0, arg_index = 0;
+        out << tabs << "std::cout << \"sending \" << sizeof(header) << \" with header.size \" << header.size_ << std::endl;\n";
+        out << tabs << "send (this->get_fd(), &header, sizeof (header), 0);\n";
+        out << tabs << "std::cout << \"sending \" << sizeof(values" << value_index << ") << std::endl;\n";
+        out << tabs << "send (this->get_fd(), &values" << value_index << ", sizeof (values" << value_index << "), 0);\n";
+
+        //value_index = arg_index = 0;
+        bool separate = false;
+        vwm::protocol::generate_for_each_value
+          (args
+           , [&] (pugi::xml_node arg)
+             {
+               auto type = arg.attribute("type").value();
+               if (vwm::protocol::is_arg_fixed_size(type))
+                 return ++arg_index, vwm::protocol::value_generator_separation::continue_;
+               else if (!separate)
+               {
+                 out << tabs << "vwm::wayland::marshall_send (this->get_fd(), arg" << arg_index << ");\n";
+                 ++arg_index;
+                 ++value_index;
+
+                 out << tabs << "std::cout << \"sending \" << sizeof(values" << value_index << ") << std::endl;\n";
+                 out << tabs << "send (this->get_fd(), &values" << value_index << ", sizeof (values" << value_index << "), 0);\n";
+
+                 separate = true;
+                 return vwm::protocol::value_generator_separation::separate;
+               }
+               else
+                 return separate = false,vwm::protocol::value_generator_separation::continue_;
+             });
+      }
         // auto generate_values_suffix_code
         //   = [] (std::ostream& out, unsigned int fixed_size_values_index, unsigned int fixed_size_values_size
         //         , unsigned int argument_index, std::optional<unsigned int> new_id_subitem)

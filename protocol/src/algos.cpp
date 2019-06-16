@@ -22,8 +22,8 @@
 
 namespace vwm { namespace protocol {
 
-void generate_for_each_value (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args, std::string tabs
-                                        , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator)
+void generate_for_each_value (pugi::xml_object_range<pugi::xml_named_node_iterator> args
+                              , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator)
 {
   auto first = args.begin()
     , last = args.end();
@@ -32,7 +32,24 @@ void generate_for_each_value (std::ostream& out, pugi::xml_object_range<pugi::xm
     while (embedded_generator (*first) == value_generator_separation::separate);
   }
 }
-    
+
+vwm::protocol::value_generator_separation generate_event_value_members (std::ostream& out, unsigned& i, bool& separated
+                                                                        , std::string tabs, pugi::xml_node arg)
+{
+  auto type = arg.attribute("type").value();
+  if (vwm::protocol::is_arg_fixed_size(type))
+  {
+    out << tabs << "  ";
+    vwm::protocol::generate_arg_decl (out, type, i++, "_");
+    out << ";\n";
+    return vwm::protocol::value_generator_separation::continue_;
+  }
+  else if (separated)
+    return separated = false,vwm::protocol::value_generator_separation::continue_;
+  else
+    return i++,separated = true,vwm::protocol::value_generator_separation::separate;
+}
+
 void generate_values_type_definition (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args, std::string tabs
                                       , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator)
 {
@@ -41,7 +58,7 @@ void generate_values_type_definition (std::ostream& out, pugi::xml_object_range<
   out << tabs << "{\n";
 
   generate_for_each_value
-    (out, args, tabs
+    (args
      , [&] (auto arg)
        {
          auto r = embedded_generator (arg);
@@ -80,13 +97,16 @@ void generate_request_case_value_definition (std::ostream& out
     out << tabs;
     generate_arg_decl (out, "string", arg_index, "");
     out << ";\n";
+    out << tabs << "vwm::wayland::unmarshall(arg" << arg_index << ", std::string_view{payload.data() + offset, payload.size() - offset});\n";
+    out << tabs << "offset += vwm::wayland::marshall_size(arg" << arg_index << ");\n";
     
     arg_index++;
     value_index++;
     out << tabs << "struct values" << value_index << " values" << value_index << ";\n";
-    out << tabs << "if constexpr (std::is_empty<struct values" << value_index << ">::value)\n";
+    out << tabs << "if constexpr (!std::is_empty<struct values" << value_index << ">::value)\n";
     out << tabs << "{\n";
     out << tabs << "  std::memcpy(&values" << value_index << ", payload.data() + offset, sizeof(values" << value_index << "));\n";
+    out << tabs << "  offset += sizeof(values" << value_index << ");\n";
     out << tabs << "}\n";
 
     out << tabs;
@@ -108,7 +128,7 @@ void generate_request_case_value_definition (std::ostream& out
 
     arg_index++;
     value_index++;
-    out << tabs << "struct values" << value_index << " values" << value_index << ";\n";
+    out << tabs << "struct values" << value_index << " values" << value_index << "; static_cast<void>(values" << value_index << ");\n";
   }
 }
 
@@ -143,6 +163,33 @@ void generate_request_argument (std::ostream& out, unsigned& arg_index
     out << ", arg" << arg_index;
 
     arg_index++;
+  }
+}
+
+void generate_event_value_argument (std::ostream& out, unsigned& value_index
+                                    , unsigned& arg_index
+                                    , bool& pred_taken
+                                    , unsigned current_value_index
+                                    , pugi::xml_node arg)
+{
+  auto comma_if = [&] { if (pred_taken) out << ", "; };
+  auto pred = [&] { return current_value_index == value_index; };
+  auto type = arg.attribute("type").value();
+  if (vwm::protocol::is_arg_fixed_size(type))
+  {
+    if (pred())
+    {
+      comma_if();
+      out << "arg" << arg_index;
+      pred_taken = true;
+    }
+    
+    arg_index++;
+  }
+  else
+  {
+    arg_index++;
+    value_index++;
   }
 }
     
@@ -213,24 +260,22 @@ void generate_process_message_request_case (std::ostream& out, pugi::xml_node me
 
   auto args = member.children ("arg");
   {
-    {
-      bool separated = false;
-      unsigned int i = 0;
-      auto arg_first = args.begin(), arg_last = args.end();
+    bool separated = false;
+    unsigned int i = 0;
+    auto arg_first = args.begin(), arg_last = args.end();
 
-      generate_values_type_definition
-        (out, args, "            "
-         , [&] (pugi::xml_node arg) -> vwm::protocol::value_generator_separation
-           {
-             return generate_request_case_values_type_definition
-               (out, separated, i, arg_first, arg_last, "            ", arg);
-           });
-    }
+    generate_values_type_definition
+      (out, args, "            "
+       , [&] (pugi::xml_node arg) -> vwm::protocol::value_generator_separation
+         {
+           return generate_request_case_values_type_definition
+             (out, separated, i, arg_first, arg_last, "            ", arg);
+         });
     out << tabs << "unsigned offset = 0;\n";
     {
       unsigned value_index = 0, arg_index = 0;
       out << tabs << "struct values" << value_index << " values" << value_index << ";\n";
-      out << tabs << "if constexpr (std::is_empty<struct values" << value_index << ">::value)\n";
+      out << tabs << "if constexpr (!std::is_empty<struct values" << value_index << ">::value)\n";
       out << tabs << "{\n";
       out << tabs << "  std::memcpy(&values" << value_index << ", payload.data() + offset, sizeof(values" << value_index << "));\n";
       out << tabs << "  offset += sizeof(values" << value_index << ");\n";
@@ -290,101 +335,101 @@ void generate_process_message (std::ostream& out, pugi::xml_document& doc)
   out << "  }\n";
 }
     
-void generate_values (std::ostream& out, pugi::xml_node member
-                      , unsigned int arg_size
-                      , unsigned int& fixed_size_values_last
-                      , std::string tabs
-                      , std::string header_decl_prefix
-                      , std::string header_constr_prefix
-                      , std::function<void(std::ostream&, unsigned int, unsigned int, unsigned int, std::optional<unsigned int>)> generate_values_suffix_code
-                      , bool generate_constructors)
-{
-  unsigned int fixed_size_values_index = 1;
-  fixed_size_values_last = -1;
-  unsigned int first_from_value = 0;
-  //out << "    vwm::wayland::sbo<char> buffer;\n";
-  out << tabs << "struct values1\n";
-  out << tabs << "{\n";
-  out << header_decl_prefix;
+// void generate_values (std::ostream& out, pugi::xml_node member
+//                       , unsigned int arg_size
+//                       , unsigned int& fixed_size_values_last
+//                       , std::string tabs
+//                       , std::string header_decl_prefix
+//                       , std::string header_constr_prefix
+//                       , std::function<void(std::ostream&, unsigned int, unsigned int, unsigned int, std::optional<unsigned int>)> generate_values_suffix_code
+//                       , bool generate_constructors)
+// {
+//   unsigned int fixed_size_values_index = 1;
+//   fixed_size_values_last = -1;
+//   unsigned int first_from_value = 0;
+//   //out << "    vwm::wayland::sbo<char> buffer;\n";
+//   out << tabs << "struct values1\n";
+//   out << tabs << "{\n";
+//   out << header_decl_prefix;
 
-  auto args = member.children("arg");
+//   auto args = member.children("arg");
 
-  unsigned int i = 0;
-  bool is_last = false;
-  auto generate_value_end =
-    [&] (std::function<void(std::ostream&, unsigned int, unsigned int, unsigned int
-                            , std::optional<unsigned int>)> generate_values_suffix_code
-         , bool composed = false)
-    {
-       out << tabs << "} values" << fixed_size_values_index;
-       is_last = (i == arg_size);
-       if (is_last)
-         fixed_size_values_last = fixed_size_values_index;
-       if (generate_constructors)
-         value_constructor(out, fixed_size_values_index, first_from_value, member
-                           , header_constr_prefix);
-       else
-         out << ";\n";
+//   unsigned int i = 0;
+//   bool is_last = false;
+//   auto generate_value_end =
+//     [&] (std::function<void(std::ostream&, unsigned int, unsigned int, unsigned int
+//                             , std::optional<unsigned int>)> generate_values_suffix_code
+//          , bool composed = false)
+//     {
+//        out << tabs << "} values" << fixed_size_values_index;
+//        is_last = (i == arg_size);
+//        if (is_last)
+//          fixed_size_values_last = fixed_size_values_index;
+//        if (generate_constructors)
+//          value_constructor(out, fixed_size_values_index, first_from_value, member
+//                            , header_constr_prefix);
+//        else
+//          out << ";\n";
 
-       if (generate_values_suffix_code)
-       {
-         if (composed)
-           generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, 0);
-         else
-           generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, {});
-       }
+//        if (generate_values_suffix_code)
+//        {
+//          if (composed)
+//            generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, 0);
+//          else
+//            generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, {});
+//        }
 
-       i++;
-       first_from_value = i;
-       if (!is_last)
-       {
-         fixed_size_values_index++;
-         out << tabs << "struct values" << fixed_size_values_index << "\n";
-         out << tabs << "{\n";
-       }
-       else
-       {
-       }
-    };
+//        i++;
+//        first_from_value = i;
+//        if (!is_last)
+//        {
+//          fixed_size_values_index++;
+//          out << tabs << "struct values" << fixed_size_values_index << "\n";
+//          out << tabs << "{\n";
+//        }
+//        else
+//        {
+//        }
+//     };
   
-  for (auto&& arg : args)
-   {
-     auto type = arg.attribute("type").value();
-     if (vwm::protocol::is_arg_fixed_size(type)
-         && !(arg.attribute("interface").empty() && !strcmp(type, "new_id")))
-     {
-       out << tabs << "  ";
-       generate_arg_decl (out, type, i, "_");
-       out << ";\n";
-       i++;
-     }
-     else if (!strcmp(type, "new_id"))
-     {
-       generate_value_end (generate_values_suffix_code, true);
-       if (generate_values_suffix_code)
-       {
-         generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, 1);
-         generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, 2);
-       }
-     }
-     else // not fixed
-     {
-       generate_value_end (generate_values_suffix_code);
-     }
-   }
+//   for (auto&& arg : args)
+//    {
+//      auto type = arg.attribute("type").value();
+//      if (vwm::protocol::is_arg_fixed_size(type)
+//          && !(arg.attribute("interface").empty() && !strcmp(type, "new_id")))
+//      {
+//        out << tabs << "  ";
+//        generate_arg_decl (out, type, i, "_");
+//        out << ";\n";
+//        i++;
+//      }
+//      else if (!strcmp(type, "new_id"))
+//      {
+//        generate_value_end (generate_values_suffix_code, true);
+//        if (generate_values_suffix_code)
+//        {
+//          generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, 1);
+//          generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, 2);
+//        }
+//      }
+//      else // not fixed
+//      {
+//        generate_value_end (generate_values_suffix_code);
+//      }
+//    }
 
-  fixed_size_values_last = fixed_size_values_index;
-  if (!is_last)
-  {
-    out << tabs << "} values" << fixed_size_values_index;
-    if (generate_constructors)
-      vwm::protocol::value_constructor(out, fixed_size_values_index, first_from_value, member
-                                       , header_constr_prefix);
-    else
-      out << ";\n";
-    if (generate_values_suffix_code)
-      generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, {});
-  }
-}
+//   fixed_size_values_last = fixed_size_values_index;
+//   if (!is_last)
+//   {
+//     out << tabs << "} values" << fixed_size_values_index;
+//     if (generate_constructors)
+//       vwm::protocol::value_constructor(out, fixed_size_values_index, first_from_value, member
+//                                        , header_constr_prefix);
+//     else
+//       out << ";\n";
+//     if (generate_values_suffix_code)
+//       generate_values_suffix_code (out, fixed_size_values_index, fixed_size_values_last, i, {});
+//   }
+// }
 
 } }

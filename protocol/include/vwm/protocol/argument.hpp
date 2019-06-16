@@ -198,8 +198,25 @@ void value_constructor (std::ostream& out, unsigned int fixed_size_values_index,
 
 void generate_process_message (std::ostream& out, pugi::xml_document& doc);
 
-    void generate_arguments_enumeration (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args);
-    
+void generate_values_type_definition (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args, std::string tabs
+                                      , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator);
+value_generator_separation generate_request_case_values_type_definition (std::ostream& out, bool& separated
+                                                                         , unsigned& i, pugi::xml_named_node_iterator arg_first
+                                                                         , pugi::xml_named_node_iterator arg_last
+                                                                         , std::string tabs
+                                                                         , pugi::xml_node arg);
+void generate_event_value_argument (std::ostream& out, unsigned& value_index
+                                    , unsigned& arg_index
+                                    , bool& pred_taken
+                                    , unsigned current_value_index
+                                    , pugi::xml_node arg);
+
+vwm::protocol::value_generator_separation generate_event_value_members (std::ostream& out, unsigned& i, bool& separated
+                                                                        , std::string tabs, pugi::xml_node arg);
+
+void generate_for_each_value (pugi::xml_object_range<pugi::xml_named_node_iterator> args
+                              , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator);
+
 } }
 
 #endif

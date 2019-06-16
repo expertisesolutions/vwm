@@ -48,23 +48,34 @@ struct client
   object_type get_object(uint32_t client_id) const
   {
     if (client_id > client_objects.size())
+    {
+      std::cout << "object " << client_id << " not found" << std::endl;
       throw 1.0f;
+    }
 
     auto object = client_objects[client_id - 1];
     
     if (object.interface_ == vwm::wayland::generated::interface_::empty)
+    {
+      std::cout << "object is empty" << std::endl;
       throw -1.0;
+    }
     return object;
   }
 
   void add_object(uint32_t client_id, object_type obj)
   {
+    std::cout << "adding object with client_id " << client_id << std::endl;
+    
     if (client_id == client_objects.size() + 1)
       client_objects.push_back (obj);
     else if (client_id < client_objects.size() + 1)
     {
       if (client_objects[client_id].interface_ != vwm::wayland::generated::interface_::empty)
+      {
+        std::cout << "client_id " << client_id << " already used" << std::endl;
         throw (char)1;
+      }
     }
     else
     {
@@ -93,6 +104,14 @@ struct client
       {
         throw std::system_error( std::error_code (errno, std::system_category()));
       }
+      else if (r == 0)
+      {
+        std::cout << "read 0" << std::endl;
+        if (errno != EINTR)
+          exit(0);
+        else
+          return;
+      }
       else
       {
         std::cout << "read " << r << " bytes" << std::endl;
@@ -101,7 +120,36 @@ struct client
     }
     else
     {
-      std::abort();
+      std::cout << "current_message_size == " << current_message_size << std::endl;
+      std::memmove (socket_buffer.data(), &static_cast<char*>(socket_buffer.data())[buffer_first], (buffer_last - buffer_first));
+      buffer_last -= buffer_first;
+      buffer_first = 0;
+      //std::abort();
+      socket_buffer.resize (current_message_size);
+
+      std::cout << "buffer_first " << buffer_first << " buffer_last " << buffer_last << std::endl;
+      
+      auto data = static_cast<char*>(socket_buffer.data());
+      auto r = recv (fd, &data[buffer_last], socket_buffer.size() - buffer_last, 0);
+      if (r < 0)
+      {
+        throw std::system_error( std::error_code (errno, std::system_category()));
+      }
+      else if (r == 0)
+      {
+        std::cout << "read 0 errno " << errno << std::endl;
+        perror("");
+        if (errno != EINTR)
+          exit(0);
+        else
+          return;
+      }
+      else
+      {
+        std::cout << "read " << r << " bytes" << std::endl;
+        buffer_last += r;
+      }
+      
     }
 
     while (buffer_last - buffer_first >= header_size)
@@ -149,7 +197,6 @@ struct client
       }
       current_message_size = -1;
     }
-      
     
     // // registry_get
     // std::cout << "read " << r << std::endl;
@@ -226,7 +273,7 @@ struct client
   
   void wl_display_get_registry (object_type obj, uint32_t new_id)
   {
-    std::cout << "wl_display_get_registry" << std::endl;
+    std::cout << "wl_display_get_registry with new id " << new_id << std::endl;
 
     add_object (new_id, {vwm::wayland::generated::interface_::wl_registry});
     server_protocol().wl_registry_global (new_id, 1, "wl_compositor", 4);
@@ -238,7 +285,34 @@ struct client
 
   void wl_registry_bind (object_type obj, uint32_t global_id, std::string_view interface, uint32_t version, uint32_t new_id)
   {
-    std::cout << "called bind?" << std::endl;
+    std::cout << "called bind for " << new_id << " interface |" << interface << "| " << interface.size()
+              << " last byte " << (int)interface[interface.size() -1] << " version " << version  << std::endl;
+
+    if (interface == "wl_compositor")
+      {
+        add_object (new_id, {vwm::wayland::generated::interface_::wl_compositor});
+      }
+    else if (interface == "wl_shm")
+      {
+        add_object (new_id, {vwm::wayland::generated::interface_::wl_shm});
+      }
+    else if (interface == "wl_shell")
+      {
+        add_object (new_id, {vwm::wayland::generated::interface_::wl_shell});
+      }
+    else if (interface == "wl_output")
+      {
+        add_object (new_id, {vwm::wayland::generated::interface_::wl_output});
+      }
+    else if (interface == "xdg_wm_base")
+      {
+        add_object (new_id, {vwm::wayland::generated::interface_::wl_callback});
+      }
+    else
+      {
+        std::cout << "none of the above?" << std::endl;
+      }
+    
   }
 
   void wl_compositor_create_surface (object_type obj, uint32_t new_id)
@@ -249,8 +323,10 @@ struct client
   {
   }
 
-  void wl_shm_create_pool (object_type obj, uint32_t arg0, int arg1, uint32_t arg2)
+  void wl_shm_create_pool (object_type obj, uint32_t new_id, int fd, uint32_t size)
   {
+    std::cout << "create pool with new_id " << new_id << std::endl;
+    add_object (new_id, {vwm::wayland::generated::interface_::wl_shm_pool});
   }
 
   void wl_shm_pool_create_buffer (object_type obj, int32_t offset, int32_t width, int32_t height, int32_t stride, uint32_t format, uint32_t new_id)
