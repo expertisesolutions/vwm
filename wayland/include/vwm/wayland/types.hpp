@@ -29,7 +29,7 @@ struct array
 std::size_t marshall_size (std::string_view v)
 {
   std::size_t rest = (v.size() + 1) % sizeof(std::uint32_t);
-  return sizeof (std::uint32_t) + v.size() + 1 + (sizeof(std::uint32_t) - rest);
+  return sizeof (std::uint32_t) + v.size() + 1 + (rest == 0 ? 0 : sizeof(std::uint32_t) - rest);
 }
 std::size_t marshall_size (array v)
 {
@@ -56,7 +56,8 @@ void marshall_send (int fd, array v)
   std::abort();
 }
 
-void unmarshall (std::string_view& string, std::string_view payload)
+template <typename Client>
+void unmarshall (std::string_view& string, std::string_view payload, Client&)
 {
   std::uint32_t size;
   if (payload.size() >= sizeof(size))
@@ -69,6 +70,16 @@ void unmarshall (std::string_view& string, std::string_view payload)
   }
 }
 
+template <typename Client>
+void unmarshall (int& fd, std::string_view payload, Client& c)
+{
+  if (c.fds.empty())
+    throw std::runtime_error ("no fds avaialable in ancillary data");
+
+  fd = c.fds.front();
+  c.fds.pop_back();
+}
+    
 unsigned unmarshall_size (std::string_view payload, std::string_view string)
 {
   std::abort();

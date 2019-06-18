@@ -20,7 +20,7 @@ int main(int argc, char** argv)
   boost::program_options::options_description desc("Allowed options");
   desc.add_options()
     ("help", "produce help message")
-    ("input,i", boost::program_options::value<std::string>(), "input file")
+    ("input,i", boost::program_options::value<std::vector<std::string>>(), "input file")
     ("output,o", boost::program_options::value<std::string>(), "output file")
     ;
   
@@ -34,8 +34,12 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  pugi::xml_document doc;
-  pugi::xml_parse_result result = doc.load_file(vm["input"].as<std::string>().c_str());
+  std::vector<pugi::xml_document> docs;
+  for (auto&& input : vm["input"].as<std::vector<std::string>>())
+  {
+    docs.push_back({});
+    pugi::xml_parse_result result = docs.back().load_file(input.c_str());
+  }
 
   std::ofstream out (vm["output"].as<std::string>().c_str(), std::ios::out);
 
@@ -56,7 +60,8 @@ int main(int argc, char** argv)
   out << "  empty,\n";
     
   std::uint32_t interface_index = 0;
-  for (auto&& interface_ : doc.child ("protocol").children ("interface"))
+  for (auto&& doc : docs)
+    for (auto&& interface_ : doc.child ("protocol").children ("interface"))
     {
       std::cout << "interface " << interface_.attribute("name").value() << " interface index " << interface_index << std::endl;
       out << "  " << interface_.attribute("name").value() << ",\n";
@@ -71,9 +76,10 @@ int main(int argc, char** argv)
   out << "  template <typename...Args>\n";
   out << "  server_protocol (Args&&... args) : Base(args...) {}\n";
 
-  vwm::protocol::generate_process_message (out, doc);
+  vwm::protocol::generate_process_message (out, docs);
 
   // events
+  for (auto&& doc : docs)
   for (auto&& interface_ : doc.child ("protocol").children ("interface"))
   {
     unsigned int event_index = 0;

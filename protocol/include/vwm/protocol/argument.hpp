@@ -12,6 +12,8 @@
 
 #include <functional>
 
+#include <iostream>
+
 namespace vwm { namespace protocol {
 
 struct uint_tag {};
@@ -60,6 +62,7 @@ typename F::result_type select_arg (std::string type, F function)
   }
   else
   {
+    std::cout << "unknown type" << std::endl;
     throw -1;
   }
 }
@@ -122,6 +125,8 @@ struct is_arg_fixed_size_visitor
 {
   template <typename T>
   constexpr bool operator()(T) const { return true; }
+
+  constexpr bool operator()(fd_tag) const { return false; }
 
   constexpr bool operator()(string_tag) const { return false; }
 
@@ -196,7 +201,7 @@ void value_constructor (std::ostream& out, unsigned int fixed_size_values_index,
   out << "};\n";
 }
 
-void generate_process_message (std::ostream& out, pugi::xml_document& doc);
+    void generate_process_message (std::ostream& out, std::vector<pugi::xml_document>const& doc);
 
 void generate_values_type_definition (std::ostream& out, pugi::xml_object_range<pugi::xml_named_node_iterator> args, std::string tabs
                                       , std::function<value_generator_separation(pugi::xml_node argument)> embedded_generator);

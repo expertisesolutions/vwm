@@ -65,15 +65,18 @@ struct sbo
   {
     if (is_dynamic())
     {
+      std::cout << "is_dynamic" << std::endl;
       auto db = get_dynamic_buffer();
       db->v.resize(size);
     }
     else if (size > static_size)
     {
-      std::vector<char> v(static_cast<const char*>(data()), static_cast<const char*>(data()) + static_size);
-      dynamic_buffer db {true, std::move(v)};
-      auto dst_db = get_dynamic_buffer();
-      *dst_db = std::move(db);
+      std::cout << "is_static" << std::endl;
+      std::vector<char> v(size);
+      std::memcpy(v.data(), static_cast<const char*>(data()), static_size);
+      std::cout << "is_static" << std::endl;
+      auto dst_db = create_dynamic_buffer({true, std::move(v)});
+      std::cout << "is_static" << std::endl;
     }
     else
     {
@@ -108,13 +111,19 @@ struct sbo
 private:
   constexpr const dynamic_buffer* get_dynamic_buffer() const
   {
-    //assert (is_dynamic());
+    assert (is_dynamic());
     return static_cast<const dynamic_buffer*>(static_cast<const void*>(static_data.data()));
   }
 
   constexpr dynamic_buffer* get_dynamic_buffer()
   {
     return const_cast<dynamic_buffer*>(const_cast<self_type const*>(this)->get_dynamic_buffer());
+  }
+
+  constexpr dynamic_buffer* create_dynamic_buffer(dynamic_buffer db = {})
+  {
+    assert (!is_dynamic());
+    return new (static_data.data()) dynamic_buffer(std::move(db));
   }
 };
     

@@ -97,7 +97,7 @@ void generate_request_case_value_definition (std::ostream& out
     out << tabs;
     generate_arg_decl (out, "string", arg_index, "");
     out << ";\n";
-    out << tabs << "vwm::wayland::unmarshall(arg" << arg_index << ", std::string_view{payload.data() + offset, payload.size() - offset});\n";
+    out << tabs << "vwm::wayland::unmarshall(arg" << arg_index << ", std::string_view{payload.data() + offset, payload.size() - offset}, *this);\n";
     out << tabs << "offset += vwm::wayland::marshall_size(arg" << arg_index << ");\n";
     
     arg_index++;
@@ -125,6 +125,8 @@ void generate_request_case_value_definition (std::ostream& out
     out << tabs;
     generate_arg_decl (out, type, arg_index, "");
     out << ";\n";
+    out << tabs << "vwm::wayland::unmarshall(arg" << arg_index << ", std::string_view{payload.data() + offset, payload.size() - offset}, *this);\n";
+    out << tabs << "offset += vwm::wayland::marshall_size(arg" << arg_index << ");\n";
 
     arg_index++;
     value_index++;
@@ -302,15 +304,16 @@ void generate_process_message_request_case (std::ostream& out, pugi::xml_node me
   out << "            break;}\n";
 }
     
-void generate_process_message (std::ostream& out, pugi::xml_document& doc)
+void generate_process_message (std::ostream& out, std::vector<pugi::xml_document>const& docs)
 {
   out << "  void process_message (uint32_t from, uint16_t op, std::string_view payload)\n";
   out << "  {\n";
   out << "    auto object = this->get_object(from);\n";
-  out << "    switch (object.interface_)\n";
+  out << "    switch (this->get_interface(object))\n";
   out << "    {\n";
   out << "      case interface_::empty: throw -1; break;\n";
 
+  for (auto&& doc : docs)
   for (auto&& interface_ : doc.child ("protocol").children ("interface"))
   {
       std::cout << "interface " << interface_.attribute("name").value() << std::endl;
