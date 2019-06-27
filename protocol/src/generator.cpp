@@ -98,7 +98,7 @@ int main(int argc, char** argv)
       }
       out << ")\n";
       out << "  {\n";
-      out << "    std::cout << \"sending event " << member.attribute("name").value() << "\" << std::endl;\n";
+      out << "    //std::cout << \"sending event " << member.attribute("name").value() << "\" << std::endl;\n";
 
       auto tabs = "    ";
 
@@ -171,10 +171,24 @@ int main(int argc, char** argv)
       {
         // generate sends
         unsigned value_index = 0, arg_index = 0;
-        out << tabs << "std::cout << \"sending \" << sizeof(header) << \" with header.size \" << header.size_ << std::endl;\n";
-        out << tabs << "send (this->get_fd(), &header, sizeof (header), 0);\n";
-        out << tabs << "std::cout << \"sending \" << sizeof(values" << value_index << ") << std::endl;\n";
-        out << tabs << "send (this->get_fd(), &values" << value_index << ", sizeof (values" << value_index << "), 0);\n";
+        out << tabs << "//std::cout << \"sending \" << sizeof(header) << \" with header.size \" << header.size_ << std::endl;\n";
+        out << tabs << "vwm::wayland::send_with_fds (this->get_fd(), &header, sizeof (header)";
+        auto args = member.children("arg");
+        {
+          int cur_arg = 0;
+          for (auto&& arg : args)
+          {
+            if (!strcmp(arg.attribute("type").value(), "fd"))
+            {
+              out << ", arg" << cur_arg;
+            }
+            cur_arg++;
+          }
+        }
+        out << ");\n";
+        out << tabs << "//std::cout << \"sending \" << sizeof(values" << value_index << ") << std::endl;\n";
+        out << tabs << "if constexpr (!std::is_empty<struct values" << value_index << ">::value)\n";
+        out << tabs << "  send (this->get_fd(), &values" << value_index << ", sizeof (values" << value_index << "), 0);\n";
 
         //value_index = arg_index = 0;
         bool separate = false;
@@ -191,8 +205,9 @@ int main(int argc, char** argv)
                  ++arg_index;
                  ++value_index;
 
-                 out << tabs << "std::cout << \"sending \" << sizeof(values" << value_index << ") << std::endl;\n";
-                 out << tabs << "send (this->get_fd(), &values" << value_index << ", sizeof (values" << value_index << "), 0);\n";
+                 out << tabs << "//std::cout << \"sending \" << sizeof(values" << value_index << ") << std::endl;\n";
+                 out << tabs << "if constexpr (!std::is_empty<struct values" << value_index << ">::value)\n";
+                 out << tabs << " send (this->get_fd(), &values" << value_index << ", sizeof (values" << value_index << "), 0);\n";
 
                  separate = true;
                  return vwm::protocol::value_generator_separation::separate;

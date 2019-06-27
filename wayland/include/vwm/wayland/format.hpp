@@ -14,64 +14,64 @@ namespace vwm { namespace wayland {
 
 enum class format
 {
- argb8888
- , xrgb8888
- , c8
- , rgb332
- , bgr233
- , xrgb4444
- , xbgr4444
- , rgbx4444
- , bgrx4444
- , argb4444
- , abgr4444
- , rgba4444
- , bgra4444
- , xrgb1555
- , xbgr1555
- , rgbx5551
- , bgrx5551
- , argb1555
- , abgr1555
- , rgba5551
- , bgra5551
- , rgb565
- , bgr565
- , rgb888
- , bgr888
- , xbgr8888
- , rgbx8888
- , bgrx8888
- , abgr8888
- , rgba8888
- , bgra8888
- , xrgb2101010
- , xbgr2101010
- , rgbx1010102
- , bgrx1010102
- , argb2101010
- , abgr2101010
- , rgba1010102
- , bgra1010102
- , yuyv
- , yvyu
- , uyvy
- , vyuy
- , ayuv
- , nv12
- , nv21
- , nv16
- , nv61
- , yuv410
- , yvu410
- , yuv411
- , yvu411
- , yuv420
- , yvu420
- , yuv422
- , yvu422
- , yuv444
- , yvu444
+ argb8888 = 0
+ , xrgb8888 = 1
+ , c8 = 0x20203843
+ , rgb332 = 0x38424752
+ , bgr233 = 0x38524742
+ , xrgb4444 = 0x32315258
+ , xbgr4444 = 0x32314258
+ , rgbx4444 = 0x32315852
+ , bgrx4444 = 0x32315842
+ , argb4444 = 0x32315241
+ , abgr4444 = 0x32314241
+ , rgba4444 = 0x32314152
+ , bgra4444 = 0x32314142
+ , xrgb1555 = 0x35315258
+ , xbgr1555 = 0x35314258
+ , rgbx5551 = 0x35315852
+ , bgrx5551 = 0x35315842
+ , argb1555 = 0x35315241
+ , abgr1555 = 0x35314241
+ , rgba5551 = 0x35314152
+ , bgra5551 = 0x35314142
+ , rgb565 = 0x36314752
+ , bgr565 = 0x36314742
+ , rgb888 = 0x34324752
+ , bgr888 = 0x34324742
+ , xbgr8888 = 0x34324258
+ , rgbx8888 = 0x34325852
+ , bgrx8888 = 0x34325842
+ , abgr8888 = 0x34324241
+ , rgba8888 = 0x34324152
+ , bgra8888 = 0x34324142
+ , xrgb2101010 = 0x30335258
+ , xbgr2101010 = 0x30334258
+ , rgbx1010102 = 0x30335852
+ , bgrx1010102 = 0x30335842
+ , argb2101010 = 0x30335241
+ , abgr2101010 = 0x30334241
+ , rgba1010102 = 0x30334152
+ , bgra1010102 = 0x30334142
+ , yuyv = 0x56595559
+ , yvyu = 0x55595659
+ , uyvy = 0x59565955
+ , vyuy = 0x59555956
+ , ayuv = 0x56555941
+ , nv12 = 0x3231564e
+ , nv21 = 0x3132564e
+ , nv16 = 0x3631564e
+ , nv61 = 0x3136564e
+ , yuv410 = 0x39565559
+ , yvu410 = 0x39555659
+ , yuv411 = 0x31315559
+ , yvu411 = 0x31315659
+ , yuv420 = 0x32315559
+ , yvu420 = 0x32315659
+ , yuv422 = 0x36315559
+ , yvu422 = 0x36315659
+ , yuv444 = 0x34325559
+ , yvu444 = 0x34325659
 };
 
 const char* format_description (format f)

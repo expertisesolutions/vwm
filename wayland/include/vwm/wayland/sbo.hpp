@@ -39,6 +39,11 @@ struct sbo
 
   typedef sbo<T, SmallSize> self_type;
 
+  sbo ()
+  {
+    *static_cast<bool*>(static_cast<void*>(static_data.data())) = false;
+  }
+  
   constexpr bool is_dynamic() const
   {
     return *static_cast<const bool*>(static_cast<const void*>(static_data.data()));

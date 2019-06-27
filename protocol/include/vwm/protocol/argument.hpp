@@ -105,7 +105,7 @@ struct print_decl
 
   void operator()(array_tag) const
   {
-    *os << "vwm::wayland::array " << prefix << "arg" << i << suffix;
+    *os << "vwm::wayland::array_base const& " << prefix << "arg" << i << suffix;
   }
 
   void operator()(fd_tag) const

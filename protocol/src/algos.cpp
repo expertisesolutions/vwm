@@ -130,7 +130,12 @@ void generate_request_case_value_definition (std::ostream& out
 
     arg_index++;
     value_index++;
-    out << tabs << "struct values" << value_index << " values" << value_index << "; static_cast<void>(values" << value_index << ");\n";
+    out << tabs << "struct values" << value_index << " values" << value_index << ";\n";
+    out << tabs << "if constexpr (!std::is_empty<struct values" << value_index << ">::value)\n";
+    out << tabs << "{\n";
+    out << tabs << "  std::memcpy(&values" << value_index << ", payload.data() + offset, sizeof(values" << value_index << "));\n";
+    out << tabs << "  offset += sizeof(values" << value_index << ");\n";
+    out << tabs << "}\n";
   }
 }
 

@@ -16,9 +16,13 @@ namespace vwm { namespace wayland {
 
 struct surface
 {
-  void attach (shm_buffer* buffer, std::int32_t x, std::int32_t y)
+  std::size_t buffer_id;
+  shm_buffer* buffer = nullptr;
+  
+  void attach (shm_buffer* buffer, std::size_t buffer_id, std::int32_t x, std::int32_t y)
   {
-    
+    this->buffer_id = buffer_id;
+    this->buffer = buffer;
   }
 };
     

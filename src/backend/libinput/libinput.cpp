@@ -20,6 +20,7 @@
 #include <cassert>
 #include <iostream>
 #include <cstring>
+#include <functional>
 
 namespace vwm { namespace backend { namespace libinput {
 
@@ -41,7 +42,7 @@ const static struct libinput_interface interface = {
 
 }
       
-void init ( ::uv_loop_t* loop)
+xkb_keymap* init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uint32_t)> function)
 {
   struct udev *udev;
   struct libinput *li;
@@ -71,7 +72,7 @@ void init ( ::uv_loop_t* loop)
   ::uv_poll_init (loop, handle, fd);
 
   auto lambda = 
-    [li, state]
+    [li, state, function]
     {
       struct libinput_event *event;
       std::cout << "event on fd" << std::endl;
@@ -120,7 +121,10 @@ void init ( ::uv_loop_t* loop)
               std::cout << "utf8 " << utf8 << std::endl;
 
               // do something with it
+              if (function)
               {
+                function (libinput_event_keyboard_get_time (ev), libinput_event_keyboard_get_key (ev)
+                          , libinput_event_keyboard_get_key_state (ev));
               }
             }
           }
@@ -145,10 +149,14 @@ void init ( ::uv_loop_t* loop)
                     if (status == 0)
                     {
                       (*static_cast<lambda_type*>(handle->data))();
+
+                      
                     }
                   };
 
   uv_poll_start (handle, UV_READABLE, cb);
+
+  return keymap;
 }
 
 } } }

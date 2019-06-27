@@ -12,7 +12,7 @@
 
 namespace vwm { namespace backend { namespace libinput {
 
-void init ( ::uv_loop_t* loop);
+xkb_keymap* init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uint32_t)> function);
 
 } } }
 
