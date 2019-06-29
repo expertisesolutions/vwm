@@ -42,6 +42,7 @@
 
 #include <vwm/wayland/client.hpp>
 #include <ftk/ui/backend/vulkan_draw.hpp>
+#include <vwm/render_thread.hpp>
 
 // #include <wayland-server-core.h>
 // #include <wayland-server-protocol.h>
@@ -53,13 +54,19 @@
 int drm_init();
 
 int main(void) {
+  try {
   ::uv_loop_t loop;
+  bool dirty = false, exit = true;;
+  std::mutex mutex;
+  std::condition_variable condvar;
 
   uv_loop_init (&loop);
 
-  vwm::wayland::generated::server_protocol<vwm::wayland::client>* focused = nullptr;
+  typedef vwm::wayland::client client_type;
+  
+  vwm::wayland::generated::server_protocol<client_type>* focused = nullptr;
 
-  auto keymap = vwm::backend::libinput::init
+  auto keyboard = vwm::backend::libinput::init
     (&loop
      ,
      [&focused] (std::uint32_t time, std::uint32_t key, std::uint32_t state)
@@ -92,18 +99,19 @@ int main(void) {
     if (br != 0)
     {
       perror ("error: ");
-      exit(-1);
+      return -1;
     }
 
     auto lr = listen (socket, 128);
     if (lr != 0)
     {
       perror ("error: ");
-      exit(-1);
+      return -1;
     }
 
     vwm::ui::detail::wait (&loop, socket, UV_READABLE
-                           , [loop = &loop, socket, backend = &backend, toplevel = &w, keymap, &focused] (uv_poll_t* handle)
+                           , [loop = &loop, socket, backend = &backend, toplevel = &w, keyboard = &keyboard, &focused
+                              , &dirty, render_mutex = &mutex, render_condvar = &condvar] (uv_poll_t* handle)
                              {
                                std::cout << "can be accepted?" << std::endl;
 
@@ -116,16 +124,25 @@ int main(void) {
 
                                fcntl(new_socket, F_SETFL, O_NONBLOCK);
 
-                               vwm::wayland::generated::server_protocol<vwm::wayland::client>*
-                                 c = new vwm::wayland::generated::server_protocol<vwm::wayland::client>
-                                 {new_socket, backend, toplevel, keymap};
+                               vwm::wayland::generated::server_protocol<client_type>*
+                                 c = new vwm::wayland::generated::server_protocol<client_type>
+                                 {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, *render_mutex, *render_condvar)};
                                if (!focused) focused = c;
                                vwm::ui::detail::wait (loop, new_socket, UV_READABLE,
-                                                      [loop, c] (uv_poll_t*)
+                                                      [loop, c] (uv_poll_t* handle)
                                                       {
                                                         std::cout << "can be read" << std::endl;
 
-                                                        c->read();
+                                                        try
+                                                        {
+                                                          c->read();
+                                                        }
+                                                        catch (std::exception const& e)
+                                                        {
+                                                          std::cout << "Error with client: " << e.what() << std::endl;
+                                                          uv_poll_stop (handle);
+                                                          uv_close (static_cast<uv_handle_t*>(static_cast<void*>(handle)), /*& ::close*/NULL);
+                                                        }
                                                       });
                              });
 
@@ -139,9 +156,17 @@ int main(void) {
 
   // draw (backend, w);
   
+  auto thread = vwm::render_thread (&w, dirty, exit, mutex, condvar);
 
   auto r = uv_run (&loop, UV_RUN_DEFAULT);
   std::cout << "uv_run return " << r << std::endl;
-    
+
+  vwm::render_exit (exit, mutex, condvar)();
+  thread.join();
   return 0;
+  } catch (std::exception const& e)
+  {
+    std::cout << "Exception was thrown " << e.what() << std::endl;
+    return -1;
+  }
 }

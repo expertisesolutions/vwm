@@ -150,7 +150,7 @@ void send_with_fds (int sock, void* buffer, std::size_t length
 {
   std::cout << "sending file descriptor " << fd << " plus " << sizeof...(fds) << " file descriptors" << std::endl;
   
-  ssize_t size;
+  //ssize_t size;
   char control[CMSG_SPACE(sizeof(int32_t) + 1 + sizeof...(fds))];
   struct iovec iov = {
 		.iov_base = buffer,

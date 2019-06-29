@@ -7,15 +7,17 @@
 // See http://www.boost.org/libs/foreach for documentation
 //
 
-#ifndef VWM_VWM_BACKEND_LIBINPUT_HPP
-#define VWM_VWM_BACKEND_LIBINPUT_HPP
+#ifndef VWM_WAYLAND_DRM_HPP
+#define VWM_WAYLAND_DRM_HPP
 
-#include <vwm/backend/keyboard.hpp>
+namespace vwm { namespace wayland {
 
-namespace vwm { namespace backend { namespace libinput {
-
-vwm::keyboard init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uint32_t)> function);
-
-} } }
+struct drm
+{
+  int fd;
+  
+};
+    
+} }
 
 #endif

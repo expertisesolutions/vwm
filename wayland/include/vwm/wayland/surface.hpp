@@ -11,18 +11,30 @@
 #define VWM_WAYLAND_SURFACE_HPP
 
 #include <vwm/wayland/shm.hpp>
+#include <vwm/wayland/dmabuf.hpp>
 
 namespace vwm { namespace wayland {
 
+template <typename Token>
 struct surface
 {
   std::size_t buffer_id;
-  shm_buffer* buffer = nullptr;
+  std::variant<shm_buffer*, dma_buffer> buffer = nullptr;
+  Token token;
+  bool loaded = false;
+  bool failed = false;
   
-  void attach (shm_buffer* buffer, std::size_t buffer_id, std::int32_t x, std::int32_t y)
+  void set_attachment (shm_buffer* buffer, std::size_t buffer_id, Token token, std::int32_t x, std::int32_t y)
   {
     this->buffer_id = buffer_id;
     this->buffer = buffer;
+    this->token = token;
+  }
+
+  void set_attachment (dma_buffer buffer, std::size_t buffer_id, Token token, std::int32_t x, std::int32_t y)
+  {
+    this->buffer_id = buffer_id;
+    this->buffer = std::move(buffer);
   }
 };
     

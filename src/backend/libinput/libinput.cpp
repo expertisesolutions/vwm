@@ -7,6 +7,9 @@
 // See http://www.boost.org/libs/foreach for documentation
 //
 
+#include <vwm/backend/keyboard.hpp>
+#include <vwm/uv/detail/poll.hpp>
+
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -42,7 +45,7 @@ const static struct libinput_interface interface = {
 
 }
       
-xkb_keymap* init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uint32_t)> function)
+vwm::keyboard init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uint32_t)> function)
 {
   struct udev *udev;
   struct libinput *li;
@@ -66,13 +69,12 @@ xkb_keymap* init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uin
   assert (li != nullptr);
   libinput_udev_assign_seat(li, "seat0");
 
+  vwm::keyboard keyboard{xkb_context_, keymap, state};
+  
   int fd = libinput_get_fd(li);
 
-  uv_poll_t* handle = new uv_poll_t;
-  ::uv_poll_init (loop, handle, fd);
-
   auto lambda = 
-    [li, state, function]
+    [li, state, function, keyboard] (uv_poll_t*)
     {
       struct libinput_event *event;
       std::cout << "event on fd" << std::endl;
@@ -85,9 +87,57 @@ xkb_keymap* init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uin
         auto t = libinput_event_get_type (event);
         switch (t)
         {
-        case LIBINPUT_EVENT_DEVICE_ADDED:
-          std::cout << "LIBINPUT_EVENT_DEVICE_ADDED" << std::endl;
+        case LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE:
+          std::cout << "LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE" << std::endl;
           break;
+        case LIBINPUT_EVENT_POINTER_MOTION:
+          std::cout << "LIBINPUT_EVENT_POINTER_MOTION" << std::endl;
+          break;
+        case LIBINPUT_EVENT_POINTER_BUTTON:
+          std::cout << "LIBINPUT_EVENT_POINTER_BUTTON" << std::endl;
+          break;
+        case LIBINPUT_EVENT_TOUCH_DOWN:
+          std::cout << "LIBINPUT_EVENT_TOUCH_DOWN" << std::endl;
+          break;
+        case LIBINPUT_EVENT_DEVICE_ADDED:{
+          std::cout << "LIBINPUT_EVENT_DEVICE_ADDED" << std::endl;
+
+          libinput_event_device_notify* ev = libinput_event_get_device_notify_event (event);
+
+          assert (ev != NULL);
+
+          libinput_device* dev = libinput_event_get_device (event);
+          
+          if (libinput_device_has_capability (dev, LIBINPUT_DEVICE_CAP_KEYBOARD))
+          {
+            std::cout << "a keyboard" << std::endl;
+          }
+          if (libinput_device_has_capability (dev, LIBINPUT_DEVICE_CAP_POINTER))
+          {
+            std::cout << "a mouse" << std::endl;
+          }
+          if (libinput_device_has_capability (dev, LIBINPUT_DEVICE_CAP_TOUCH))
+          {
+            std::cout << "a touchscreen" << std::endl;
+          }
+          if (libinput_device_has_capability (dev, LIBINPUT_DEVICE_CAP_GESTURE))
+          {
+            std::cout << "a gesture input" << std::endl;
+          }
+          if (libinput_device_has_capability (dev, LIBINPUT_DEVICE_CAP_SWITCH))
+          {
+            std::cout << "a switch input" << std::endl;
+          }
+          if (libinput_device_has_capability (dev, LIBINPUT_DEVICE_CAP_TABLET_TOOL))
+          {
+            std::cout << "a tablet tool " << libinput_device_get_name (dev) << std::endl;
+          }
+          if (libinput_device_has_capability (dev, LIBINPUT_DEVICE_CAP_TABLET_PAD))
+          {
+            std::cout << "a tablet pad " << libinput_device_get_name (dev) << std::endl;
+          }
+          
+          break;}
         case LIBINPUT_EVENT_KEYBOARD_KEY:
           std::cout << "LIBINPUT_EVENT_KEYBOARD_KEY" << std::endl;
           {
@@ -96,7 +146,9 @@ xkb_keymap* init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uin
                       << " key state " << (int)libinput_event_keyboard_get_key_state (ev) << std::endl;
 
             auto code = libinput_event_keyboard_get_key (ev) + 8;
-            
+
+            xkb_state_update_mask(keyboard.state, keyboard.mods_depressed(), keyboard.mods_latched(), keyboard.mods_locked()
+                                  , 0, 0, keyboard.group());
             xkb_state_update_key (state, code, libinput_event_keyboard_get_key_state(ev) ? XKB_KEY_DOWN : XKB_KEY_UP);
 
             const xkb_keysym_t* syms;
@@ -139,24 +191,12 @@ xkb_keymap* init ( ::uv_loop_t* loop, std::function<void(uint32_t, uint32_t, uin
       }
       std::cout << "event is null" << std::endl;
     };
-  using lambda_type = decltype(lambda);
 
-  handle->data = new lambda_type(lambda);
-  
-  uv_poll_cb cb = [] (uv_poll_t* handle, int status, int event)
-                  {
-		    std::cout << "event " << event << std::endl;
-                    if (status == 0)
-                    {
-                      (*static_cast<lambda_type*>(handle->data))();
+  vwm::ui::detail::wait (loop, fd, UV_READABLE, lambda);
 
-                      
-                    }
-                  };
+  //xkb_state_update_mask(keyboard.state, keyboard.mods_depressed(), keyboard.mods_latched(), keyboard.mods_locked(), 0, 0, keyboard.group());
 
-  uv_poll_start (handle, UV_READABLE, cb);
-
-  return keymap;
+  return keyboard;
 }
 
 } } }
