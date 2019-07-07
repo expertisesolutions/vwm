@@ -38,7 +38,7 @@
 
 namespace vwm { namespace wayland {
 
-    //template <typename WindowingBase>
+template <typename WindowingBase>
 struct client
 {
   int fd;
@@ -47,7 +47,7 @@ struct client
   unsigned int buffer_last;
   int32_t current_message_size;
 
-  typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, ftk::ui::backend::khr_display> backend_type;
+  typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, WindowingBase> backend_type;
   uv_loop_t* loop;
   backend_type* backend;
   ftk::ui::toplevel_window<backend_type>* toplevel;
@@ -976,6 +976,14 @@ struct client
           //                                , (*buffer)->width, (*buffer)->height, (*buffer)->stride);
           // toplevel->add_on_top ((*buffer)->mmap_buffer_offset, 0, 0
           //                       , (*buffer)->width, (*buffer)->height, (*buffer)->stride);
+          if (!s->inserted_draw_list)
+          {
+            s->inserted_draw_list = true;
+            toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
+          }
+
+          render_dirty ();
+          
           if (s->failed)
           {
             std::cout << "failed" << std::endl;

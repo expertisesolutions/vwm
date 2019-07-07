@@ -28,7 +28,7 @@
 #include <fastdraw/output/vulkan/add_image.hpp>
 
 #include <ftk/ui/toplevel_window.hpp>
-#include <ftk/ui/backend/khr_display.hpp>
+#include <ftk/ui/backend/xlib_surface.hpp>
 
 #include <ftk/ui/backend/vulkan.hpp>
 #include <ftk/ui/backend/uv.hpp>
@@ -56,13 +56,14 @@ int drm_init();
 int main(void) {
   try {
   ::uv_loop_t loop;
-  bool dirty = false, exit = true;;
+  bool dirty = false, exit = false;;
   std::mutex mutex;
   std::condition_variable condvar;
 
   uv_loop_init (&loop);
 
-  typedef vwm::wayland::client client_type;
+  typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, ftk::ui::backend::xlib_surface> backend_type;
+  typedef vwm::wayland::client<ftk::ui::backend::xlib_surface> client_type;
   
   vwm::wayland::generated::server_protocol<client_type>* focused = nullptr;
 
@@ -78,7 +79,6 @@ int main(void) {
      }
      );
 
-  typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, ftk::ui::backend::khr_display> backend_type;
   backend_type backend({&loop});
 
   ftk::ui::toplevel_window<backend_type> w(backend);

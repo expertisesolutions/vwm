@@ -23,6 +23,7 @@ struct surface
   Token token;
   bool loaded = false;
   bool failed = false;
+  bool inserted_draw_list = false;
   
   void set_attachment (shm_buffer* buffer, std::size_t buffer_id, Token token, std::int32_t x, std::int32_t y)
   {
