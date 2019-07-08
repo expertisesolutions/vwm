@@ -88,7 +88,7 @@ int main(void) {
   //    }
   //    );
 
-  const int additional_graphic_queues = 4;
+  const int additional_graphic_queues = 2;
   const int thread_pool_queue_first = 2;
   const int thread_pool_queue_last = thread_pool_queue_first + additional_graphic_queues;
   

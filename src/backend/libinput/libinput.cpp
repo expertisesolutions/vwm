@@ -7,7 +7,6 @@
 // See http://www.boost.org/libs/foreach for documentation
 //
 
-#include <vwm/backend/keyboard.hpp>
 #include <vwm/uv/detail/poll.hpp>
 
 #include <sys/stat.h>
