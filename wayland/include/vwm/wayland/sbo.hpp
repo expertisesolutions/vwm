@@ -76,12 +76,10 @@ struct sbo
     }
     else if (size > static_size)
     {
-      std::cout << "is_static" << std::endl;
       std::vector<char> v(size);
       std::memcpy(v.data(), static_cast<const char*>(data()), static_size);
-      std::cout << "is_static" << std::endl;
       auto dst_db = create_dynamic_buffer({true, std::move(v)});
-      std::cout << "is_static" << std::endl;
+      static_cast<void>(dst_db);
     }
     else
     {

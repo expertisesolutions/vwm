@@ -38,7 +38,7 @@
 
 namespace vwm { namespace wayland {
 
-template <typename WindowingBase>
+template <typename Keyboard, typename WindowingBase>
 struct client
 {
   int fd;
@@ -54,14 +54,14 @@ struct client
   std::uint32_t serial;
   std::uint32_t output_id, keyboard_id, focused_surface_id, old_focused_surface_id;
   std::uint32_t last_surface_entered_id;
-  vwm::keyboard* keyboard;
+  Keyboard* keyboard;
   std::function<void()> render_dirty;
 
   using token_type = ftk::ui::backend::vulkan_buffer_token<void*>;
   using surface_type = surface<token_type>;
 
   client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type>* toplevel
-          , vwm::keyboard* keyboard, std::function<void()> render_dirty)
+          , Keyboard* keyboard, std::function<void()> render_dirty)
     : fd(fd), buffer_first(0), buffer_last(0)
     , current_message_size (-1), loop(loop), backend(backend), toplevel(toplevel), serial (0u), output_id(0u), keyboard_id (0u)
     , old_focused_surface_id (0u), last_surface_entered_id (0u)
@@ -981,6 +981,11 @@ struct client
             s->inserted_draw_list = true;
             toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
           }
+          else
+          {
+            toplevel->images.clear ();
+            toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
+          }
 
           render_dirty ();
           
@@ -1035,21 +1040,25 @@ struct client
   void wl_seat_get_keyboard (object& obj, std::uint32_t new_id)
   {
     add_object (new_id, {vwm::wayland::generated::interface_::wl_pointer});
-
     keyboard_id = new_id;
-    char* keymap_string = xkb_keymap_get_as_string (keyboard->keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
 
-    int fd = ::memfd_create ("keymap_shared", MFD_CLOEXEC);
-    ::ftruncate (fd, strlen(keymap_string));
-    void* p = ::mmap (NULL, strlen(keymap_string), PROT_WRITE, MAP_SHARED, fd, 0);
-    memcpy (p, keymap_string, strlen(keymap_string));
+    //if constexpr (true/*keyboard->has_keymap*/)
+    {
+      char* keymap_string = xkb_keymap_get_as_string (keyboard->keymap, XKB_KEYMAP_FORMAT_TEXT_V1);
 
-    std::cout << "sending keymap" << std::endl;
-    server_protocol().wl_keyboard_keymap (new_id, 1 /* XKB_V1 */, fd, strlen(keymap_string));
-    std::cout << "sent keymap" << std::endl;
+      int fd = ::memfd_create ("keymap_shared", MFD_CLOEXEC);
+      ::ftruncate (fd, strlen(keymap_string));
+      void* p = ::mmap (NULL, strlen(keymap_string), PROT_WRITE, MAP_SHARED, fd, 0);
+      memcpy (p, keymap_string, strlen(keymap_string));
+
+      std::cout << "sending keymap" << std::endl;
+      server_protocol().wl_keyboard_keymap (new_id, 1 /* XKB_V1 */, fd, strlen(keymap_string));
+      std::cout << "sent keymap" << std::endl;
+    }
   }
   void send_key (std::uint32_t time, std::uint32_t key, std::uint32_t state)
   {
+    std::cout << " keyboard id "  << keyboard_id << std::endl;
     if (keyboard_id)
     {
       server_protocol().wl_keyboard_key (keyboard_id, serial, time, key, state);

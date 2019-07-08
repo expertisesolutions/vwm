@@ -14,8 +14,8 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
-#include <libinput.h>
-#include <libudev.h>
+//#include <libinput.h>
+//#include <libudev.h>
 #include <uv.h>
 #include <xkbcommon/xkbcommon.h>
 #include <xf86drm.h>
@@ -36,7 +36,8 @@
 #include <ftk/ui/backend/vulkan_draw.hpp>
 #include <ftk/ui/backend/vulkan.ipp>
 
-#include <vwm/backend/libinput.hpp>
+//#include <vwm/backend/libinput.hpp>
+#include <vwm/backend/xlib_keyboard.hpp>
 #include <vwm/uv/detail/poll.hpp>
 #include <vwm/wayland/compositor.hpp>
 
@@ -62,26 +63,41 @@ int main(void) {
 
   uv_loop_init (&loop);
 
-  typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, ftk::ui::backend::xlib_surface> backend_type;
-  typedef vwm::wayland::client<ftk::ui::backend::xlib_surface> client_type;
+  typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, ftk::ui::backend::xlib_surface<ftk::ui::backend::uv>> backend_type;
+  typedef vwm::wayland::client<vwm::backend::xlib::keyboard, ftk::ui::backend::xlib_surface<ftk::ui::backend::uv>> client_type;
   
   vwm::wayland::generated::server_protocol<client_type>* focused = nullptr;
 
-  auto keyboard = vwm::backend::libinput::init
-    (&loop
-     ,
-     [&focused] (std::uint32_t time, std::uint32_t key, std::uint32_t state)
-     {
-       if (focused)
-       {
-         focused->send_key(time, key, state);
-       }
-     }
-     );
+  auto keyboard = vwm::backend::xlib::keyboard{};
 
+  // auto keyboard = vwm::backend::libinput::init
+  //   (&loop
+  //    ,
+  //    [&focused] (std::uint32_t time, std::uint32_t key, std::uint32_t state)
+  //    {
+  //      if (focused)
+  //      {
+  //        focused->send_key(time, key, state);
+  //      }
+  //    }
+  //    );
+  
   backend_type backend({&loop});
 
   ftk::ui::toplevel_window<backend_type> w(backend);
+
+  backend.key_signal.connect
+    ([&focused, &keyboard] (// std::uint32_t time, std::uint32_t key, std::uint32_t state
+                 XKeyEvent ev)
+     {
+       std::cout << "key signal focused: "  << focused << std::endl;
+       if (focused)
+       {
+         std::cout << " sending key "  << ev.keycode << "  type " << ev.type << std::endl;
+         keyboard.update_state (ev.keycode, ev.type == KeyPress);
+         focused->send_key(ev.time, ev.keycode - 8, ev.type == KeyPress ? 1 : 0);
+       }
+     });
 
   {
     ////////////////////////////////////////////
