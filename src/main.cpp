@@ -26,20 +26,26 @@
 #include <string.h>
 
 #include <fastdraw/output/vulkan/add_image.hpp>
+#include <fastdraw/image_loader/png.hpp>
 
 #include <ftk/ui/toplevel_window.hpp>
 #include <ftk/ui/backend/xlib_surface.hpp>
+
+#include <ftk/ui/backend/vulkan_image.hpp>
 
 #include <ftk/ui/backend/vulkan.hpp>
 #include <ftk/ui/backend/uv.hpp>
 
 #include <ftk/ui/backend/vulkan_draw.hpp>
 #include <ftk/ui/backend/vulkan.ipp>
+#include <ftk/ui/backend/vulkan_thread_pool.hpp>
 
 //#include <vwm/backend/libinput.hpp>
 #include <vwm/backend/xlib_keyboard.hpp>
+#include <vwm/backend/xlib_mouse.hpp>
 #include <vwm/uv/detail/poll.hpp>
 #include <vwm/wayland/compositor.hpp>
+#include <vwm/theme.hpp>
 
 #include <vwm/wayland/client.hpp>
 #include <ftk/ui/backend/vulkan_draw.hpp>
@@ -81,11 +87,25 @@ int main(void) {
   //      }
   //    }
   //    );
-  
-  backend_type backend({&loop});
 
+  const int additional_graphic_queues = 4;
+  const int thread_pool_queue_first = 2;
+  const int thread_pool_queue_last = thread_pool_queue_first + additional_graphic_queues;
+  
+  backend_type backend({&loop}, additional_graphic_queues);
   ftk::ui::toplevel_window<backend_type> w(backend);
 
+  ftk::ui::backend::vulkan_thread_pool vulkan_thread_pool (w.window.voutput.device, w.window.graphicsFamilyIndex
+                                                           , thread_pool_queue_first, thread_pool_queue_last);
+  
+  vwm::theme<fastdraw::image_loader::png_loader, ftk::ui::backend::vulkan_image_loader>
+    theme {{},
+           {w.window.voutput.device, w.window.voutput.physical_device
+            , &vulkan_thread_pool}
+           , std::filesystem::current_path()};
+
+  std::future<ftk::ui::backend::vulkan_image> mouse_cursor = theme[vwm::theme_image::pointer];
+  
   backend.key_signal.connect
     ([&focused, &keyboard] (// std::uint32_t time, std::uint32_t key, std::uint32_t state
                  XKeyEvent ev)
@@ -99,6 +119,18 @@ int main(void) {
        }
      });
 
+  vwm::backend::xlib::mouse mouse;
+  backend.motion_signal.connect
+    ([&mouse, &w, &mouse_cursor, &dirty, &mutex, &condvar] (XMotionEvent ev)
+     {
+       static auto mouse_cursor_ = mouse_cursor.get();
+       //w.images.clear();
+       w.images.push_back ({mouse_cursor_.image_view, ev.x, ev.y, 32, 32});
+
+       std::cout << "please render mouse (" << w.images.size() << ") at " << ev.x << "x" << ev.y << std::endl;
+       vwm::render_dirty (dirty, mutex, condvar)();
+     });
+  
   {
     ////////////////////////////////////////////
     auto runtime_dir = getenv("XDG_RUNTIME_DIR");

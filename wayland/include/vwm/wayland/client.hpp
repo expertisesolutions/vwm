@@ -822,7 +822,8 @@ struct client
       pool->buffers.push_back ({static_cast<char*>(pool->mmap_buffer) + offset, height*stride, offset, width, height
                                 , stride, static_cast<enum format>(format)});
 
-      assert (offset + height*stride <= pool->mmap_size);
+      assert (height >= 0);
+      assert (offset + static_cast<std::uint32_t>(height)*stride <= pool->mmap_size);
       
       add_object (new_id, {vwm::wayland::generated::interface_::wl_buffer, {&pool->buffers.back()}});
       std::cout << "create buffer format " << format_description (static_cast<enum format>(format)) << " & " << &pool->buffers[0] << std::endl;
@@ -984,7 +985,7 @@ struct client
           else
           {
             toplevel->images.clear ();
-            toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
+            //toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
           }
 
           render_dirty ();
