@@ -455,7 +455,10 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          submitInfo.pSignalSemaphores = signalSemaphores;
          using fastdraw::output::vulkan::from_result;
          using fastdraw::output::vulkan::vulkan_error_code;
-         auto r = from_result(vkQueueSubmit(toplevel->window.voutput.graphics_queue, 1, &submitInfo, toplevel->window.executionFinished));
+
+         ftk::ui::backend::vulkan_queues::lock_graphic_queue lock_queue(toplevel->window.queues);
+         
+         auto r = from_result(vkQueueSubmit(lock_queue.get_queue().queue_, 1, &submitInfo, toplevel->window.executionFinished));
          if (r != vulkan_error_code::success)
            throw std::system_error(make_error_code (r));
        }
@@ -485,10 +488,12 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          presentInfo.pSwapchains = swapChains;
          presentInfo.pImageIndices = &imageIndex;
          presentInfo.pResults = nullptr; // Optional
-                             
+
+         ftk::ui::backend::vulkan_queues::lock_presentation_queue lock_queue(toplevel->window.queues);
+         
          using fastdraw::output::vulkan::from_result;
          using fastdraw::output::vulkan::vulkan_error_code;
-         auto r = from_result (vkQueuePresentKHR(toplevel->window.voutput.present_queue, &presentInfo));
+         auto r = from_result (vkQueuePresentKHR(lock_queue.get_queue().queue_, &presentInfo));
          if (r != vulkan_error_code::success)
            throw std::system_error (make_error_code (r));
        }
