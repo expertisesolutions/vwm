@@ -489,11 +489,12 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          presentInfo.pImageIndices = &imageIndex;
          presentInfo.pResults = nullptr; // Optional
 
-         ftk::ui::backend::vulkan_queues::lock_presentation_queue lock_queue(toplevel->window.queues);
+         //ftk::ui::backend::vulkan_queues::lock_presentation_queue lock_queue(toplevel->window.queues);
          
          using fastdraw::output::vulkan::from_result;
          using fastdraw::output::vulkan::vulkan_error_code;
-         auto r = from_result (vkQueuePresentKHR(lock_queue.get_queue().queue_, &presentInfo));
+         VkQueue queue;
+         auto r = from_result (vkQueuePresentKHR(queue, &presentInfo));
          if (r != vulkan_error_code::success)
            throw std::system_error (make_error_code (r));
        }
