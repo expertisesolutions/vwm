@@ -88,11 +88,7 @@ int main(void) {
   //    }
   //    );
 
-  const int additional_graphic_queues = 2;
-  const int thread_pool_queue_first = 2;
-  const int thread_pool_queue_last = thread_pool_queue_first + additional_graphic_queues;
-
-  backend_type backend({&loop}, additional_graphic_queues);
+  backend_type backend({&loop});
   ftk::ui::toplevel_window<backend_type> w(backend);
 
   // for (int i = queue_index_first; i != queue_index_last; ++i)
@@ -100,8 +96,8 @@ int main(void) {
   //   vkGetDeviceQueue(device, family_index, i, &thread_groups_context[i - queue_index_first].queue);
   // }
   
-  ftk::ui::backend::vulkan_thread_pool vulkan_thread_pool (w.window.voutput.device, w.window.graphicsFamilyIndex
-                                                           , thread_pool_queue_first, thread_pool_queue_last
+  ftk::ui::backend::vulkan_thread_pool vulkan_thread_pool (w.window.voutput.device
+                                                           , &w.window.queues
                                                            , 4 /* thread count */);
   
   vwm::theme<fastdraw::image_loader::png_loader, ftk::ui::backend::vulkan_image_loader>
