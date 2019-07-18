@@ -38,7 +38,7 @@
 
 #include <ftk/ui/backend/vulkan_draw.hpp>
 #include <ftk/ui/backend/vulkan.ipp>
-#include <ftk/ui/backend/vulkan_thread_pool.hpp>
+#include <ftk/ui/backend/vulkan_submission_pool.hpp>
 
 //#include <vwm/backend/libinput.hpp>
 #include <vwm/backend/xlib_keyboard.hpp>
@@ -96,9 +96,9 @@ int main(void) {
   //   vkGetDeviceQueue(device, family_index, i, &thread_groups_context[i - queue_index_first].queue);
   // }
   
-  ftk::ui::backend::vulkan_thread_pool vulkan_thread_pool (w.window.voutput.device
-                                                           , &w.window.queues
-                                                           , 4 /* thread count */);
+  ftk::ui::backend::vulkan_submission_pool vulkan_thread_pool (w.window.voutput.device
+                                                               , &w.window.queues
+                                                               , 4 /* thread count */);
   
   vwm::theme<fastdraw::image_loader::png_loader, ftk::ui::backend::vulkan_image_loader>
     theme {{},
