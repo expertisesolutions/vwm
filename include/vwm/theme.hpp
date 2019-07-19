@@ -35,7 +35,7 @@ struct theme
 
   using output_image_type = typename OutputImageLoader::output_image_type;
   
-  std::future<output_image_type> operator[] (theme_image v) const
+  pc::future<output_image_type> operator[] (theme_image v) const
   {
     switch (v)
     {

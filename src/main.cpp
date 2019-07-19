@@ -76,26 +76,9 @@ int main(void) {
 
   auto keyboard = vwm::backend::xlib::keyboard{};
 
-  // auto keyboard = vwm::backend::libinput::init
-  //   (&loop
-  //    ,
-  //    [&focused] (std::uint32_t time, std::uint32_t key, std::uint32_t state)
-  //    {
-  //      if (focused)
-  //      {
-  //        focused->send_key(time, key, state);
-  //      }
-  //    }
-  //    );
-
   backend_type backend({&loop});
   ftk::ui::toplevel_window<backend_type> w(backend);
 
-  // for (int i = queue_index_first; i != queue_index_last; ++i)
-  // {
-  //   vkGetDeviceQueue(device, family_index, i, &thread_groups_context[i - queue_index_first].queue);
-  // }
-  
   ftk::ui::backend::vulkan_submission_pool vulkan_thread_pool (w.window.voutput.device
                                                                , &w.window.queues
                                                                , 4 /* thread count */);
@@ -106,7 +89,7 @@ int main(void) {
             , &vulkan_thread_pool}
            , std::filesystem::current_path()};
 
-  std::future<ftk::ui::backend::vulkan_image> mouse_cursor = theme[vwm::theme_image::pointer];
+  pc::future<ftk::ui::backend::vulkan_image> mouse_cursor = theme[vwm::theme_image::pointer];
   
   backend.key_signal.connect
     ([&focused, &keyboard] (// std::uint32_t time, std::uint32_t key, std::uint32_t state
