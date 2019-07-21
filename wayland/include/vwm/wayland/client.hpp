@@ -56,16 +56,18 @@ struct client
   std::uint32_t last_surface_entered_id;
   Keyboard* keyboard;
   std::function<void()> render_dirty;
+  ftk::ui::backend::vulkan_image_loader* image_loader;
 
-  using token_type = ftk::ui::backend::vulkan_buffer_token<void*>;
+  using token_type = pc::future<ftk::ui::backend::vulkan_image>;
   using surface_type = surface<token_type>;
 
   client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type>* toplevel
-          , Keyboard* keyboard, std::function<void()> render_dirty)
+          , Keyboard* keyboard, std::function<void()> render_dirty
+          , ftk::ui::backend::vulkan_image_loader* image_loader)
     : fd(fd), buffer_first(0), buffer_last(0)
     , current_message_size (-1), loop(loop), backend(backend), toplevel(toplevel), serial (0u), output_id(0u), keyboard_id (0u)
     , old_focused_surface_id (0u), last_surface_entered_id (0u)
-    , keyboard (keyboard), render_dirty (render_dirty)
+    , keyboard (keyboard), render_dirty (render_dirty), image_loader (image_loader)
   {
     std::cout << "keyboard " << keyboard << std::endl;
     client_objects.push_back({vwm::wayland::generated::interface_::wl_display});
@@ -132,7 +134,7 @@ struct client
     auto id = client_id - 1;
     
     if (id == client_objects.size())
-      client_objects.push_back (obj);
+      client_objects.push_back (std::move(obj));
     else if (id < client_objects.size())
     {
       if (client_objects[id].interface_ != vwm::wayland::generated::interface_::empty)
@@ -916,31 +918,34 @@ struct client
         if (*buffer)
         {
           pin();
-          auto token = ftk::ui::backend::load_buffer
-            (*backend, *toplevel, (*buffer)->mmap_buffer_offset, (*buffer)->width
-             , (*buffer)->height, (*buffer)->stride, static_cast<void*>(s)
-             , [this] (std::error_code const& ec, auto token)
-               {
-                 vwm::ui::detail::async
-                   (loop
-                    , [this, ec, token]
-                      {
-                        surface_type* s = static_cast<surface_type*>(token.user_value());
-                        if (!ec)
-                        {
-                          std::cout << "No error loading buffer" << std::endl;
-                          s->loaded = true;
-                        }
-                        else
-                        {
-                          std::cout << "Error loading buffer " << ec.message() << std::endl;
-                          s->failed = true;
-                        }
-                        /// can I release ?
-                        unpin();
-                      });
-               });
-          s->set_attachment (*buffer, buffer_id, token, x, y);
+          // auto token = ftk::ui::backend::load_buffer
+          //   (*backend, *toplevel, (*buffer)->mmap_buffer_offset, (*buffer)->width
+          //    , (*buffer)->height, (*buffer)->stride, static_cast<void*>(s)
+          //    , [this] (std::error_code const& ec, auto token)
+          //      {
+          //        vwm::ui::detail::async
+          //          (loop
+          //           , [this, ec, token]
+          //             {
+          //               surface_type* s = static_cast<surface_type*>(token.user_value());
+          //               if (!ec)
+          //               {
+          //                 std::cout << "No error loading buffer" << std::endl;
+          //                 s->loaded = true;
+          //               }
+          //               else
+          //               {
+          //                 std::cout << "Error loading buffer " << ec.message() << std::endl;
+          //                 s->failed = true;
+          //               }
+          //               /// can I release ?
+          //               unpin();
+          //             });
+          //      });
+          auto future = image_loader->load ((*buffer)->mmap_buffer_offset
+                                            , (*buffer)->width, (*buffer)->height
+                                            , (*buffer)->stride);
+          s->set_attachment (*buffer, buffer_id, std::move(future), x, y);
         }
       }
       else if (dma_buffer* buffer = std::get_if<dma_buffer>(&buffer_obj.get().data))
@@ -979,16 +984,21 @@ struct client
           //                       , (*buffer)->width, (*buffer)->height, (*buffer)->stride);
           if (!s->inserted_draw_list)
           {
+            std::cout << "adding to image draw list" << std::endl;
             s->inserted_draw_list = true;
-            toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
+            auto value = s->token.get().image_view;
+            s->loaded = true;
+            std::cout << "adding image from client to render" << std::endl;
+            auto iterator = toplevel->append_image
+              ({value, 0, 0, (*buffer)->width, (*buffer)->height});
+            render_dirty ();
           }
           else
           {
-            toplevel->images.clear ();
+            //toplevel->images.clear ();
             //toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
           }
 
-          render_dirty ();
           
           if (s->failed)
           {

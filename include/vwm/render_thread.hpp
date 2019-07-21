@@ -80,6 +80,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
   std::thread thread
     ([toplevel, &dirty, &exit, &mutex, &cond]
      {
+       auto last_time = std::chrono::high_resolution_clock::now();
        using fastdraw::output::vulkan::from_result;
        using fastdraw::output::vulkan::vulkan_error_code;
        VkSampler sampler = detail::render_thread_create_sampler (toplevel->window.voutput.device);
@@ -97,50 +98,53 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
        
        while (!exit)
        {
-         std::cout << "render thread waiting to render (before lock)" << std::endl;
+         uint32_t imageIndex;
+         VkSemaphore imageAvailable, renderFinished;
+         imageAvailable = detail::render_thread_create_semaphore (toplevel->window.voutput.device);
+         renderFinished = detail::render_thread_create_semaphore (toplevel->window.voutput.device);
+         // std::cout << "render thread waiting to render (before lock)" << std::endl;
          std::unique_lock<std::mutex> l(mutex);
-         std::cout << "render thread waiting to render" << std::endl;
-         while (!dirty && !exit)
+         // std::cout << "render thread waiting to render" << std::endl;
+         imageIndex = -1;
+         while ((!dirty || imageIndex == -1) && !exit)
          {
-           std::cout << "not dirty and not exit" << std::endl;
-           cond.wait(l);
-           std::cout << "condvar wake up" << std::endl;
+           // std::cout << "not dirty and not exit" << std::endl;
+           if (imageIndex == -1)
+           {
+             l.unlock();
+             vkAcquireNextImageKHR(toplevel->window.voutput.device, toplevel->window.swapChain
+                                   , std::numeric_limits<uint64_t>::max(), imageAvailable
+                                   , /*toplevel->window.executionFinished*/nullptr, &imageIndex);
+             std::cout << "Acquired image index " << imageIndex << std::endl;
+             l.lock();
+           }
+           if (!dirty && !exit)
+             cond.wait(l);
+           // std::cout << "condvar wake up" << std::endl;
          }
          if (exit) break;
          if (dirty == true)
            dirty = false;
 
          /**** acquire data ****/
-         l.unlock();
-         uint32_t imageIndex;
-
-         VkSemaphore imageAvailable, renderFinished;
-         imageAvailable = detail::render_thread_create_semaphore (toplevel->window.voutput.device);
-         renderFinished = detail::render_thread_create_semaphore (toplevel->window.voutput.device);
-
-         vkAcquireNextImageKHR(toplevel->window.voutput.device, toplevel->window.swapChain
-                               , std::numeric_limits<uint64_t>::max(), imageAvailable
-                               , /*toplevel->window.executionFinished*/nullptr, &imageIndex);
-         l.lock();
-         std::cout << "drawing" << std::endl;
+         // std::cout << "drawing" << std::endl;
 
          decltype (toplevel->images) images;
-         decltype (toplevel->buffer_cache) buffer_cache;
 
          unsigned int i = 0;
          for (auto&& image : toplevel->images)
          {
-           if (image.must_draw)
+           if (image.must_draw[imageIndex])
            {
-             std::cout << "found drawable image" << std::endl;
+             std::cout << "found drawable image " << &image << " image.must_draw[0] "
+                       << image.must_draw[0] << " image.must_draw[1] " << image.must_draw[1] << std::endl;
              images.push_back(image);
-             buffer_cache.push_back (toplevel->buffer_cache[i]);
-             image.must_draw = false;
+             image.must_draw[imageIndex] = false;
              image.framebuffers_regions[imageIndex] = {image.x, image.y, image.width, image.height};
            }
            i++;
          }
-         std::cout << "number of images to draw " << toplevel->images.size() << std::endl;
+         std::cout << "number of images to draw " << images.size() << std::endl;
 
          //l.unlock();
                          
@@ -168,8 +172,8 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              throw std::system_error(make_error_code (r));
          }
            
-         std::cout << "image index " << imageIndex << " damaged regions " << framebuffer_damaged_regions.size()
-                   << std::endl;
+         // std::cout << "image index " << imageIndex << " damaged regions " << framebuffer_damaged_regions.size()
+         //           << std::endl;
 
          // draw damage areas
          i = 0;
@@ -182,7 +186,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
            auto width = region.width;
            auto height = region.height;
 
-           std::cout << "damaged rect " << x << "x" << y << "-" << width << "x" << height << std::endl;
+           //std::cout << "damaged rect " << x << "x" << y << "-" << width << "x" << height << std::endl;
            
            VkRenderPassBeginInfo renderPassInfo = {};
            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -210,7 +214,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
 
            vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-           auto const static image_pipeline = fastdraw::output::vulkan::create_image_pipeline (toplevel->window.voutput);
            vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline.pipeline);
            {
              std::vector<VkDeviceSize> offsets;
@@ -262,9 +265,9 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                              
          std::vector<VkCommandBuffer> buffers = damaged_command_buffers;
-         for (auto&& cache : buffer_cache)
+         for (auto&& image : images)
          {
-           buffers.push_back (cache.command_buffer[imageIndex]);
+           buffers.push_back (image.cache->command_buffer[imageIndex]);
          }
 
          VkSemaphore waitSemaphores[] = {imageAvailable};
@@ -284,30 +287,21 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          {
            ftk::ui::backend::vulkan_queues::lock_graphic_queue lock_queue(toplevel->window.queues);
          
-           std::cout << "submit graphics " << buffers.size() << std::endl;
-           auto r = from_result(vkQueueSubmit(lock_queue.get_queue().vkqueue, 1, &submitInfo, VK_NULL_HANDLE /*executionFinished[imageIndex]*/));
+           //std::cout << "submit graphics " << buffers.size() << std::endl;
+           auto r = from_result(vkQueueSubmit(lock_queue.get_queue().vkqueue, 1, &submitInfo, executionFinished[imageIndex]));
            if (r != vulkan_error_code::success)
              throw std::system_error(make_error_code (r));
          }
 
-         std::cout << "graphic" << std::endl;
+         //std::cout << "graphic" << std::endl;
 
          // std::cout << "waiting on fence" << std::endl;
-         // if (vkWaitForFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex], VK_FALSE, -1) == VK_TIMEOUT)
-         // {
-         //   std::cout << "Timeout waiting for fence" << std::endl;
-         //   throw -1;
-         // }
-         // vkResetFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex]);
-
-         // vkFreeCommandBuffers (toplevel->window.voutput.device, commandPool, damaged_command_buffers.size()
-         //                       , &damaged_command_buffers[0]);
        
-         std::cout << "waited for fence" << std::endl;
+         //std::cout << "waited for fence" << std::endl;
          //if (!buffer_cache.empty())
          {
            static unsigned int submissions = 0;
-           std::cout << "submit presentation" << ++submissions <<  std::endl;
+           //std::cout << "submit presentation" << ++submissions <<  std::endl;
            //CHRONO_COMPARE()
 
            VkPresentInfoKHR presentInfo = {};
@@ -333,6 +327,25 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              auto r = from_result (vkQueuePresentKHR(lock_queue.get_queue().vkqueue, &presentInfo));
              if (r != vulkan_error_code::success)
                throw std::system_error (make_error_code (r));
+           }
+
+           if (vkWaitForFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex], VK_FALSE, -1) == VK_TIMEOUT)
+           {
+             //std::cout << "Timeout waiting for fence" << std::endl;
+             throw -1;
+           }
+           vkResetFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex]);
+
+           vkFreeCommandBuffers (toplevel->window.voutput.device, commandPool, damaged_command_buffers.size()
+                                 , &damaged_command_buffers[0]);
+           
+           {
+             auto now = std::chrono::high_resolution_clock::now();
+             auto diff = now - last_time;
+             last_time = now;
+             std::cout << "Time between frames "
+                       << std::chrono::duration_cast<std::chrono::milliseconds>(diff).count()
+                       << "ms" << std::endl;
            }
          }
        //CHRONO_COMPARE()

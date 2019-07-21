@@ -29,7 +29,7 @@ struct surface
   {
     this->buffer_id = buffer_id;
     this->buffer = buffer;
-    this->token = token;
+    this->token = std::move(token);
   }
 
   void set_attachment (dma_buffer buffer, std::size_t buffer_id, Token token, std::int32_t x, std::int32_t y)
