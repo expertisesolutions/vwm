@@ -26,9 +26,11 @@
 #include <string.h>
 
 #include <fastdraw/output/vulkan/add_image.hpp>
-#include <fastdraw/image_loader/png.hpp>
+#include <fastdraw/image_loader/extension_loader.hpp>
 
 #include <ftk/ui/toplevel_window.hpp>
+#include <ftk/ui/backend/vulkan_vertex_buffer.hpp>
+#include <ftk/ui/backend/vulkan_renderpass.hpp>
 #include <ftk/ui/backend/xlib_surface.hpp>
 
 #include <ftk/ui/backend/vulkan_image.hpp>
@@ -64,7 +66,7 @@ int main(void) {
   try {
   ::uv_loop_t loop;
   bool dirty = false, exit = false;;
-  std::mutex mutex;
+  std::mutex render_mutex;
   std::condition_variable condvar;
 
   uv_loop_init (&loop);
@@ -83,14 +85,21 @@ int main(void) {
                                                                , &w.window.queues
                                                                , 4 /* thread count */);
   
-  vwm::theme<fastdraw::image_loader::png_loader, ftk::ui::backend::vulkan_image_loader>
+  vwm::theme<fastdraw::image_loader::extension_loader, ftk::ui::backend::vulkan_image_loader>
     theme {{},
            {w.window.voutput.device, w.window.voutput.physical_device
             , &vulkan_thread_pool}
            , std::filesystem::current_path()};
 
+  // pc::future<ftk::ui::backend::vulkan_image> mouse_cursor = theme[vwm::theme_image::pointer];
+  // pc::future<ftk::ui::backend::vulkan_image> background = theme[vwm::theme_image::pointer];
   pc::future<ftk::ui::backend::vulkan_image> mouse_cursor = theme[vwm::theme_image::pointer];
-  
+  pc::future<ftk::ui::backend::vulkan_image> background = theme[vwm::theme_image::background];
+
+  w.load_background ({background.get().image_view, 0, 0
+                      , w.window.voutput.swapChainExtent.width
+                      , w.window.voutput.swapChainExtent.height});
+
   backend.key_signal.connect
     ([&focused, &keyboard] (// std::uint32_t time, std::uint32_t key, std::uint32_t state
                  XKeyEvent ev)
@@ -104,16 +113,31 @@ int main(void) {
        }
      });
 
+  auto mouse_iterator = w.images.end();
+
   vwm::backend::xlib::mouse mouse;
   backend.motion_signal.connect
-    ([&mouse, &w, &mouse_cursor, &dirty, &mutex, &condvar] (XMotionEvent ev)
+    ([&mouse, &mouse_iterator, &w, &mouse_cursor, &dirty, &render_mutex, &condvar] (XMotionEvent ev)
      {
        static auto mouse_cursor_ = mouse_cursor.get();
-       //w.images.clear();
-       w.images.push_back ({mouse_cursor_.image_view, ev.x, ev.y, 32, 32});
-
+       std::unique_lock<std::mutex> l (render_mutex);
+       if (mouse_iterator == w.images.end())
+       {
+         std::cout << "mouse adding new mouse image" << std::endl;
+         mouse_iterator = w.append_image ({mouse_cursor_.image_view, ev.x, ev.y, 32, 32});
+         //vwm::render_dirty (dirty, mutex, condvar)();
+       }
+       else
+       {
+         std::cout << "replacing coordinates" << std::endl;
+         //*mouse_iterator = {mouse_cursor_.image_view, ev.x, ev.y, 32, 32};
+         // change vertex buffer ?
+         // mouse_iterator->x = ev.x;
+         // mouse_iterator->y = ev.y;
+         w.move_image (mouse_iterator, ev.x, ev.y);
+       }
        std::cout << "please render mouse (" << w.images.size() << ") at " << ev.x << "x" << ev.y << std::endl;
-       vwm::render_dirty (dirty, mutex, condvar)();
+       vwm::render_dirty (dirty, l, condvar)();
      });
   
   {
@@ -144,7 +168,7 @@ int main(void) {
 
     vwm::ui::detail::wait (&loop, socket, UV_READABLE
                            , [loop = &loop, socket, backend = &backend, toplevel = &w, keyboard = &keyboard, &focused
-                              , &dirty, render_mutex = &mutex, render_condvar = &condvar] (uv_poll_t* handle)
+                              , &dirty, &render_mutex, render_condvar = &condvar] (uv_poll_t* handle)
                              {
                                std::cout << "can be accepted?" << std::endl;
 
@@ -159,7 +183,7 @@ int main(void) {
 
                                vwm::wayland::generated::server_protocol<client_type>*
                                  c = new vwm::wayland::generated::server_protocol<client_type>
-                                 {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, *render_mutex, *render_condvar)};
+                                 {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, render_mutex, *render_condvar)};
                                if (!focused) focused = c;
                                vwm::ui::detail::wait (loop, new_socket, UV_READABLE,
                                                       [loop, c] (uv_poll_t* handle)
@@ -189,12 +213,12 @@ int main(void) {
 
   // draw (backend, w);
   
-  auto thread = vwm::render_thread (&w, dirty, exit, mutex, condvar);
+  auto thread = vwm::render_thread (&w, dirty, exit, render_mutex, condvar);
 
   auto r = uv_run (&loop, UV_RUN_DEFAULT);
   std::cout << "uv_run return " << r << std::endl;
 
-  vwm::render_exit (exit, mutex, condvar)();
+  vwm::render_exit (exit, render_mutex, condvar)();
   thread.join();
   return 0;
   } catch (std::exception const& e)

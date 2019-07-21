@@ -17,6 +17,7 @@ namespace vwm {
 enum class theme_image
 {
   pointer
+  , background
 };
   
 template <typename ImageLoader, typename OutputImageLoader>
@@ -41,6 +42,8 @@ struct theme
     {
     case theme_image::pointer:
       return output_image_loader.load (resource_root / "res/theme/img/pointer.png", image_loader);
+    case theme_image::background:
+      return output_image_loader.load (resource_root / "res/theme/img/background.jpg", image_loader);
     default:
       throw -1;
     }
