@@ -59,7 +59,7 @@ struct client
   ftk::ui::backend::vulkan_image_loader* image_loader;
 
   using token_type = pc::future<ftk::ui::backend::vulkan_image>;
-  using surface_type = surface<token_type>;
+  using surface_type = surface<token_type, typename ftk::ui::toplevel_window<backend_type>::image_iterator>;
 
   client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type>* toplevel
           , Keyboard* keyboard, std::function<void()> render_dirty
@@ -978,25 +978,23 @@ struct client
 
         if ((*buffer))
         {
-          // ftk::ui::backend::draw_buffer (*backend, *toplevel, (*buffer)->mmap_buffer_offset, (*buffer)->buffer_size
-          //                                , (*buffer)->width, (*buffer)->height, (*buffer)->stride);
-          // toplevel->add_on_top ((*buffer)->mmap_buffer_offset, 0, 0
-          //                       , (*buffer)->width, (*buffer)->height, (*buffer)->stride);
-          if (!s->inserted_draw_list)
+          if (!s->render_token)
           {
             std::cout << "adding to image draw list" << std::endl;
-            s->inserted_draw_list = true;
-            auto value = s->token.get().image_view;
+            auto value = s->load_token.get().image_view;
             s->loaded = true;
             std::cout << "adding image from client to render" << std::endl;
             auto iterator = toplevel->append_image
               ({value, 0, 0, (*buffer)->width, (*buffer)->height});
+            s->render_token = iterator;
             render_dirty ();
           }
           else
           {
-            //toplevel->images.clear ();
-            //toplevel->images.push_back ({s->token.token->vulkan_image_view, 0, 0, (*buffer)->width, (*buffer)->height});
+            auto value = s->load_token.get().image_view;
+            s->loaded = true;
+            toplevel->replace_image_view (*s->render_token, value);
+            render_dirty ();
           }
 
           

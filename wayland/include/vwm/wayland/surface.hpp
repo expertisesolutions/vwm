@@ -15,24 +15,24 @@
 
 namespace vwm { namespace wayland {
 
-template <typename Token>
+template <typename LoadToken, typename RenderToken>
 struct surface
 {
   std::size_t buffer_id;
   std::variant<shm_buffer*, dma_buffer> buffer = nullptr;
-  Token token;
+  LoadToken load_token;
   bool loaded = false;
   bool failed = false;
-  bool inserted_draw_list = false;
+  std::optional<RenderToken> render_token;
   
-  void set_attachment (shm_buffer* buffer, std::size_t buffer_id, Token token, std::int32_t x, std::int32_t y)
+  void set_attachment (shm_buffer* buffer, std::size_t buffer_id, LoadToken load_token, std::int32_t x, std::int32_t y)
   {
     this->buffer_id = buffer_id;
     this->buffer = buffer;
-    this->token = std::move(token);
+    this->load_token = std::move(load_token);
   }
 
-  void set_attachment (dma_buffer buffer, std::size_t buffer_id, Token token, std::int32_t x, std::int32_t y)
+  void set_attachment (dma_buffer buffer, std::size_t buffer_id, LoadToken load_token, std::int32_t x, std::int32_t y)
   {
     this->buffer_id = buffer_id;
     this->buffer = std::move(buffer);
