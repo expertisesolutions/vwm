@@ -57,17 +57,20 @@ struct client
   Keyboard* keyboard;
   std::function<void()> render_dirty;
   ftk::ui::backend::vulkan_image_loader* image_loader;
+  std::mutex* render_mutex;
 
   using token_type = pc::future<ftk::ui::backend::vulkan_image>;
   using surface_type = surface<token_type, typename ftk::ui::toplevel_window<backend_type>::image_iterator>;
 
   client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type>* toplevel
           , Keyboard* keyboard, std::function<void()> render_dirty
-          , ftk::ui::backend::vulkan_image_loader* image_loader)
+          , ftk::ui::backend::vulkan_image_loader* image_loader
+          , std::mutex* render_mutex)
     : fd(fd), buffer_first(0), buffer_last(0)
     , current_message_size (-1), loop(loop), backend(backend), toplevel(toplevel), serial (0u), output_id(0u), keyboard_id (0u)
     , old_focused_surface_id (0u), last_surface_entered_id (0u)
     , keyboard (keyboard), render_dirty (render_dirty), image_loader (image_loader)
+    , render_mutex (render_mutex)
   {
     std::cout << "keyboard " << keyboard << std::endl;
     client_objects.push_back({vwm::wayland::generated::interface_::wl_display});
@@ -980,6 +983,7 @@ struct client
         {
           if (!s->render_token)
           {
+            std::unique_lock <std::mutex> l(*render_mutex);
             std::cout << "adding to image draw list" << std::endl;
             auto value = s->load_token.get().image_view;
             s->loaded = true;
@@ -987,15 +991,15 @@ struct client
             auto iterator = toplevel->append_image
               ({value, 0, 0, (*buffer)->width, (*buffer)->height});
             s->render_token = iterator;
-            render_dirty ();
           }
           else
           {
+            std::unique_lock <std::mutex> l(*render_mutex);
             auto value = s->load_token.get().image_view;
             s->loaded = true;
             toplevel->replace_image_view (*s->render_token, value);
-            render_dirty ();
           }
+          render_dirty ();
 
           
           if (s->failed)
