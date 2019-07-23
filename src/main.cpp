@@ -110,11 +110,18 @@ int main(void) {
   w.append_image ({background_img.image_view, 100, 100, 160, 90});
   vwm::render_dirty (dirty, render_mutex, condvar)();
 
+  bool is_moving_window = false;
+  
   backend.key_signal.connect
-    ([&focused, &keyboard] (// std::uint32_t time, std::uint32_t key, std::uint32_t state
+    ([&focused, &keyboard, &is_moving_window] (// std::uint32_t time, std::uint32_t key, std::uint32_t state
                  XKeyEvent ev)
      {
        std::cout << "key signal focused: "  << focused << std::endl;
+       if (is_moving_window && ev.keycode == XKB_KEY_Shift_L && ev.type == KeyRelease)
+       {
+         is_moving_window = false;
+       }
+       
        if (focused)
        {
          std::cout << " sending key "  << ev.keycode << "  type " << ev.type << std::endl;
@@ -125,12 +132,30 @@ int main(void) {
 
   auto mouse_iterator = w.images.end();
 
-#if 0  
+#if 1
   vwm::backend::xlib::mouse mouse;
+  backend.button_signal.connect
+    ([&mouse, &keyboard, &is_moving_window] (XButtonEvent ev)
+     {
+       if (xkb_state_mod_indices_are_active (keyboard.state, XKB_STATE_MODS_EFFECTIVE, XKB_STATE_MATCH_ALL
+                                             , XKB_KEY_Shift_L, XKB_MOD_INVALID))
+       {
+         std::cout << "Shift is pressed" << std::endl;
+         is_moving_window = true;
+       }
+     });
+     
   backend.motion_signal.connect
-    ([&mouse, &mouse_iterator, &w, &mouse_cursor, &dirty, &render_mutex, &condvar] (XMotionEvent ev)
+    ([&mouse, &mouse_iterator, &w, &mouse_cursor, &dirty, &render_mutex, &condvar
+      , &keyboard, &is_moving_window] (XMotionEvent ev)
      {
        static auto mouse_cursor_ = mouse_cursor.get();
+
+       if (is_moving_window)
+       {
+         // which window ?
+       }
+
        std::unique_lock<std::mutex> l (render_mutex);
        if (mouse_iterator == w.images.end())
        {
@@ -151,7 +176,7 @@ int main(void) {
        vwm::render_dirty (dirty, l, condvar)();
      });
 #endif
-#if 1
+#if 0
   unsigned int timer_iteration = 0;
   int32_t positions[][2] =
     {
@@ -250,7 +275,7 @@ int main(void) {
 
                                vwm::wayland::generated::server_protocol<client_type>*
                                  c = new vwm::wayland::generated::server_protocol<client_type>
-                                 {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, render_mutex, *render_condvar), &theme.output_image_loader};
+                                 {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, render_mutex, *render_condvar), &theme.output_image_loader, &render_mutex};
                                if (!focused) focused = c;
                                vwm::ui::detail::wait (loop, new_socket, UV_READABLE,
                                                       [loop, c] (uv_poll_t* handle)

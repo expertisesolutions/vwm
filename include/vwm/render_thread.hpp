@@ -223,8 +223,10 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              buffers.push_back(toplevel->vbuffer.get_buffer());
              offsets.push_back(0);
              buffers.push_back(toplevel->vbuffer.get_buffer());
+             offsets.push_back(0);
+             buffers.push_back(toplevel->vbuffer.get_buffer());
   
-             vkCmdBindVertexBuffers(damaged_command_buffer, 0, 2, &buffers[0], &offsets[0]);
+             vkCmdBindVertexBuffers(damaged_command_buffer, 0, 3, &buffers[0], &offsets[0]);
 
              VkDescriptorImageInfo imageInfo = {};
              imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
