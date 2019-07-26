@@ -38,7 +38,7 @@
 
 namespace vwm { namespace wayland {
 
-template <typename Keyboard, typename WindowingBase>
+template <typename Keyboard, typename Executor, typename WindowingBase>
 struct client
 {
   int fd;
@@ -56,7 +56,7 @@ struct client
   std::uint32_t last_surface_entered_id;
   Keyboard* keyboard;
   std::function<void()> render_dirty;
-  ftk::ui::backend::vulkan_image_loader* image_loader;
+  ftk::ui::backend::vulkan_image_loader<Executor>* image_loader;
   std::mutex* render_mutex;
 
   using token_type = pc::future<ftk::ui::backend::vulkan_image>;
@@ -64,7 +64,7 @@ struct client
 
   client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type>* toplevel
           , Keyboard* keyboard, std::function<void()> render_dirty
-          , ftk::ui::backend::vulkan_image_loader* image_loader
+          , ftk::ui::backend::vulkan_image_loader<Executor>* image_loader
           , std::mutex* render_mutex)
     : fd(fd), buffer_first(0), buffer_last(0)
     , current_message_size (-1), loop(loop), backend(backend), toplevel(toplevel), serial (0u), output_id(0u), keyboard_id (0u)
@@ -219,6 +219,37 @@ struct client
     return size;
   }
 
+  void connection_drop (std::error_code ec)
+  {
+    std::cout << "connection_drop " << ec.message() << std::endl;
+    for (auto&& object : client_objects)
+    {
+      if (auto* s = std::get_if<surface_type>(&object.data))
+      {
+        std::cout << "removing surface" << std::endl;
+        if (s->render_token)
+        {
+          std::unique_lock<std::mutex> l(*render_mutex);
+          toplevel->images.erase (*s->render_token);
+          std::int32_t w, h;
+          std::visit ([&w, &h] (auto&& buffer)
+                      {
+                        w = width (buffer);
+                        h = height (buffer);
+                      }, s->buffer);
+          std::cout << "pushed damage region " << s->x << 'x' << s->y
+                    << "-" << w << "x" << h << std::endl;
+          toplevel->framebuffers_damaged_regions[0].push_back({s->x, s->y, w, h});
+          toplevel->framebuffers_damaged_regions[1].push_back({s->x, s->y, w, h});
+          l.unlock();
+        }
+      }
+    }
+    render_dirty();
+    //close (fd);
+    throw std::system_error (ec);
+  }
+
   void read()
   {
     static const std::uint32_t header_size = sizeof(uint32_t) * 2;
@@ -240,7 +271,8 @@ struct client
       auto r = read_msg (fd, &data[buffer_last], socket_buffer.size() - buffer_last, 0);
       if (r < 0)
       {
-        throw std::system_error( std::error_code (errno, std::system_category()));
+        connection_drop (std::error_code(errno, std::system_category()));
+        //throw std::system_error( std::error_code (errno, std::system_category()));
       }
       else if (r == 0)
       {
@@ -248,7 +280,8 @@ struct client
         //perror("");
         if (errno != EINTR)
           //exit(0);
-          throw std::system_error( std::error_code (errno, std::system_category()));
+          connection_drop (std::error_code(errno, std::system_category()));
+        //throw std::system_error( std::error_code (errno, std::system_category()));
         else
           return;
       }
@@ -276,7 +309,8 @@ struct client
       auto r = read_msg (fd, &data[buffer_last], socket_buffer.size() - buffer_last, 0);
       if (r < 0)
       {
-        throw std::system_error( std::error_code (errno, std::system_category()));
+        connection_drop (std::error_code(errno, std::system_category()));
+        //throw std::system_error( std::error_code (errno, std::system_category()));
       }
       else if (r == 0)
       {
@@ -1052,6 +1086,8 @@ struct client
   }
   void wl_seat_get_keyboard (object& obj, std::uint32_t new_id)
   {
+    std::cout << "wl_seat_get_keyboard new_id " << new_id << std::endl;
+    
     add_object (new_id, {vwm::wayland::generated::interface_::wl_pointer});
     keyboard_id = new_id;
 

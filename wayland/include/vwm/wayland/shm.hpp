@@ -23,6 +23,26 @@ struct shm_buffer
   enum format format;
 };
 
+inline int32_t width (shm_buffer const& buffer)
+{
+  return buffer.width;
+}
+
+inline int32_t height (shm_buffer const& buffer)
+{
+  return buffer.height;
+}
+
+inline int32_t width (shm_buffer const* buffer)
+{
+  return buffer->width;
+}
+
+inline int32_t height (shm_buffer const* buffer)
+{
+  return buffer->height;
+}
+    
 struct shm_pool
 {
   int fd;

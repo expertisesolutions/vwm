@@ -24,18 +24,23 @@ struct surface
   bool loaded = false;
   bool failed = false;
   std::optional<RenderToken> render_token;
+  std::int32_t x, y;
   
   void set_attachment (shm_buffer* buffer, std::size_t buffer_id, LoadToken load_token, std::int32_t x, std::int32_t y)
   {
     this->buffer_id = buffer_id;
     this->buffer = buffer;
     this->load_token = std::move(load_token);
+    this->x = x;
+    this->y = y;
   }
 
   void set_attachment (dma_buffer buffer, std::size_t buffer_id, LoadToken load_token, std::int32_t x, std::int32_t y)
   {
     this->buffer_id = buffer_id;
     this->buffer = std::move(buffer);
+    this->x = x;
+    this->y = y;
   }
 };
     

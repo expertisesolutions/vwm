@@ -27,6 +27,16 @@ struct dma_buffer
   std::vector<dma_buffer_params> params;
 };
 
+inline int32_t width (dma_buffer const& buffer)
+{
+  return buffer.width;
+}
+
+inline int32_t height (dma_buffer const& buffer)
+{
+  return buffer.height;
+}
+    
 struct dma_params
 {
   
