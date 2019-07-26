@@ -53,6 +53,7 @@
 #include <vwm/wayland/client.hpp>
 #include <ftk/ui/backend/vulkan_draw.hpp>
 #include <vwm/render_thread.hpp>
+#include <portable_concurrency/thread_pool>
 
 // #include <wayland-server-core.h>
 // #include <wayland-server-protocol.h>
@@ -71,9 +72,12 @@ int main(void) {
   std::condition_variable condvar;
 
   uv_loop_init (&loop);
+  namespace pc = portable_concurrency;
+  pc::static_thread_pool thread_pool {8};
+  typedef pc::static_thread_pool::executor_type executor_type;
 
   typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, ftk::ui::backend::xlib_surface<ftk::ui::backend::uv>> backend_type;
-  typedef vwm::wayland::client<vwm::backend::xlib::keyboard, ftk::ui::backend::xlib_surface<ftk::ui::backend::uv>> client_type;
+  typedef vwm::wayland::client<vwm::backend::xlib::keyboard, executor_type, ftk::ui::backend::xlib_surface<ftk::ui::backend::uv>> client_type;
   
   vwm::wayland::generated::server_protocol<client_type>* focused = nullptr;
 
@@ -82,11 +86,14 @@ int main(void) {
   backend_type backend({&loop});
   ftk::ui::toplevel_window<backend_type> w(backend);
 
-  ftk::ui::backend::vulkan_submission_pool vulkan_thread_pool (w.window.voutput.device
-                                                               , &w.window.queues
-                                                               , 4 /* thread count */);
+  ftk::ui::backend::vulkan_submission_pool<executor_type>
+    vulkan_thread_pool (w.window.voutput.device
+                        , &w.window.queues
+                        , thread_pool.executor()
+                        , 4 /* thread count */);
   
-  vwm::theme<fastdraw::image_loader::extension_loader, ftk::ui::backend::vulkan_image_loader>
+  vwm::theme<fastdraw::image_loader::extension_loader
+             , ftk::ui::backend::vulkan_image_loader<executor_type>>
     theme {{},
            {w.window.voutput.device, w.window.voutput.physical_device
             , &vulkan_thread_pool}
@@ -260,7 +267,7 @@ int main(void) {
     vwm::ui::detail::wait (&loop, socket, UV_READABLE
                            , [loop = &loop, socket, backend = &backend, toplevel = &w, keyboard = &keyboard, &focused
                               , &dirty, &render_mutex, render_condvar = &condvar
-                              , &theme] (uv_poll_t* handle)
+                              , &theme] (uv_poll_t* handle, int event)
                              {
                                std::cout << "can be accepted?" << std::endl;
 
@@ -277,20 +284,32 @@ int main(void) {
                                  c = new vwm::wayland::generated::server_protocol<client_type>
                                  {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, render_mutex, *render_condvar), &theme.output_image_loader, &render_mutex};
                                if (!focused) focused = c;
-                               vwm::ui::detail::wait (loop, new_socket, UV_READABLE,
-                                                      [loop, c] (uv_poll_t* handle)
+                               vwm::ui::detail::wait (loop, new_socket, UV_READABLE | UV_DISCONNECT,
+                                                      [loop, c, &focused] (uv_poll_t* handle, int event)
                                                       {
                                                         std::cout << "can be read" << std::endl;
 
                                                         try
                                                         {
-                                                          c->read();
+                                                          if (event == UV_READABLE)
+                                                            c->read();
+                                                          else if (event == UV_DISCONNECT)
+                                                          {
+                                                            uv_poll_stop (handle);
+                                                            uv_close (static_cast<uv_handle_t*>(static_cast<void*>(handle)), /*& ::close*/NULL);
+                                                            close (c->fd);
+                                                            focused = nullptr;
+                                                            delete c;
+                                                          }
                                                         }
                                                         catch (std::exception const& e)
                                                         {
                                                           std::cout << "Error with client: " << e.what() << std::endl;
                                                           uv_poll_stop (handle);
                                                           uv_close (static_cast<uv_handle_t*>(static_cast<void*>(handle)), /*& ::close*/NULL);
+                                                          close (c->fd);
+                                                          focused = nullptr;
+                                                          delete c;
                                                         }
                                                       });
                              });
