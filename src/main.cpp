@@ -70,6 +70,8 @@ int main(void) {
   bool dirty = false, exit = false;;
   std::mutex render_mutex;
   std::condition_variable condvar;
+  std::int32_t surface_start_x = 0, surface_start_y = 0;
+  std::int32_t surface_start_x_offset = 30, surface_start_y_offset = 30;
 
   uv_loop_init (&loop);
   namespace pc = portable_concurrency;
@@ -107,13 +109,15 @@ int main(void) {
   auto background_img = background.get();
 
   w.load_background ({background_img.image_view, 0, 0
-                      , w.window.voutput.swapChainExtent.width
-                      , w.window.voutput.swapChainExtent.height});
+                      , static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
+                      , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
 
   w.framebuffers_damaged_regions[0].push_back
-    ({0, 0, w.window.voutput.swapChainExtent.width, w.window.voutput.swapChainExtent.height});
+    ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
+      , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
   w.framebuffers_damaged_regions[1].push_back
-    ({0, 0, w.window.voutput.swapChainExtent.width, w.window.voutput.swapChainExtent.height});
+    ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
+      , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
   w.append_image ({background_img.image_view, 100, 100, 160, 90});
   vwm::render_dirty (dirty, render_mutex, condvar)();
 
@@ -267,7 +271,8 @@ int main(void) {
     vwm::ui::detail::wait (&loop, socket, UV_READABLE
                            , [loop = &loop, socket, backend = &backend, toplevel = &w, keyboard = &keyboard, &focused
                               , &dirty, &render_mutex, render_condvar = &condvar
-                              , &theme] (uv_poll_t* handle, int event)
+                              , &theme, &surface_start_x, &surface_start_y
+                              , surface_start_x_offset, surface_start_y_offset] (uv_poll_t* handle, int event)
                              {
                                std::cout << "can be accepted?" << std::endl;
 
@@ -282,7 +287,8 @@ int main(void) {
 
                                vwm::wayland::generated::server_protocol<client_type>*
                                  c = new vwm::wayland::generated::server_protocol<client_type>
-                                 {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, render_mutex, *render_condvar), &theme.output_image_loader, &render_mutex};
+                                 {new_socket, loop, backend, toplevel, keyboard, vwm::render_dirty (dirty, render_mutex, *render_condvar), &theme.output_image_loader, &render_mutex, surface_start_x += surface_start_x_offset
+                                  , surface_start_y += surface_start_y_offset};
                                if (!focused) focused = c;
                                vwm::ui::detail::wait (loop, new_socket, UV_READABLE | UV_DISCONNECT,
                                                       [loop, c, &focused] (uv_poll_t* handle, int event)

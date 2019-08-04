@@ -58,6 +58,8 @@ struct client
   std::function<void()> render_dirty;
   ftk::ui::backend::vulkan_image_loader<Executor>* image_loader;
   std::mutex* render_mutex;
+  std::int32_t surface_start_x = 0, surface_start_y = 0;
+  std::int32_t surface_start_x_offset = 30, surface_start_y_offset = 30;
 
   using token_type = pc::future<ftk::ui::backend::vulkan_image>;
   using surface_type = surface<token_type, typename ftk::ui::toplevel_window<backend_type>::image_iterator>;
@@ -65,12 +67,14 @@ struct client
   client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type>* toplevel
           , Keyboard* keyboard, std::function<void()> render_dirty
           , ftk::ui::backend::vulkan_image_loader<Executor>* image_loader
-          , std::mutex* render_mutex)
+          , std::mutex* render_mutex
+          , std::int32_t surface_start_x = 0, std::int32_t surface_start_y = 0)
     : fd(fd), buffer_first(0), buffer_last(0)
     , current_message_size (-1), loop(loop), backend(backend), toplevel(toplevel), serial (0u), output_id(0u), keyboard_id (0u)
     , old_focused_surface_id (0u), last_surface_entered_id (0u)
     , keyboard (keyboard), render_dirty (render_dirty), image_loader (image_loader)
-    , render_mutex (render_mutex)
+    , render_mutex (render_mutex), surface_start_x (surface_start_x)
+    , surface_start_y (surface_start_y)
   {
     std::cout << "keyboard " << keyboard << std::endl;
     client_objects.push_back({vwm::wayland::generated::interface_::wl_display});
@@ -237,10 +241,10 @@ struct client
                         w = width (buffer);
                         h = height (buffer);
                       }, s->buffer);
-          std::cout << "pushed damage region " << s->x << 'x' << s->y
+          std::cout << "pushed damage region " << s->pos_x << 'x' << s->pos_y
                     << "-" << w << "x" << h << std::endl;
-          toplevel->framebuffers_damaged_regions[0].push_back({s->x, s->y, w, h});
-          toplevel->framebuffers_damaged_regions[1].push_back({s->x, s->y, w, h});
+          toplevel->framebuffers_damaged_regions[0].push_back({s->pos_x, s->pos_y, w, h});
+          toplevel->framebuffers_damaged_regions[1].push_back({s->pos_x, s->pos_y, w, h});
           l.unlock();
         }
       }
@@ -819,7 +823,10 @@ struct client
   void wl_compositor_create_surface (object& obj, uint32_t new_id)
   { 
     focused_surface_id = new_id;
-    add_object (new_id, {vwm::wayland::generated::interface_::wl_surface, {surface_type{}}});
+    add_object (new_id, {vwm::wayland::generated::interface_::wl_surface
+                         , {surface_type{surface_start_x, surface_start_y}}});
+    surface_start_x += surface_start_x_offset;
+    surface_start_y += surface_start_y_offset;
   }
 
   void wl_compositor_create_region (object& obj, uint32_t new_id)
@@ -858,7 +865,7 @@ struct client
                 << "buffers.pointer " << &pool->buffers[0]
                 << " pool mmap size " << pool->mmap_size << " mmap buffer " << (void*)(static_cast<char*>(pool->mmap_buffer) + offset) << std::endl;
 
-      pool->buffers.push_back ({static_cast<char*>(pool->mmap_buffer) + offset, height*stride, offset, width, height
+      pool->buffers.push_back ({static_cast<char*>(pool->mmap_buffer) + offset, static_cast<uint32_t>(height)*stride, offset, width, height
                                 , stride, static_cast<enum format>(format)});
 
       assert (height >= 0);
@@ -1023,7 +1030,7 @@ struct client
             s->loaded = true;
             std::cout << "adding image from client to render" << std::endl;
             auto iterator = toplevel->append_image
-              ({value, 0, 0, (*buffer)->width, (*buffer)->height});
+              ({value, s->pos_x, s->pos_y, (*buffer)->width, (*buffer)->height});
             s->render_token = iterator;
           }
           else
