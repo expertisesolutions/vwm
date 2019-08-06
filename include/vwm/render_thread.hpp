@@ -231,47 +231,48 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline1.pipeline);
            VkRect2D scissor = renderPassInfo.renderArea;
            vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
+           // constexpr const int tex_max_size = 30;
            {
-             assert (toplevel->images.size() <= 10);
-             struct infos
-             {
-               VkDescriptorImageInfo backgroundInfo = {};
-               VkDescriptorImageInfo imageInfos[9] = {};
-             } infos;
-             {
-               infos.backgroundInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-               infos.backgroundInfo.imageView = toplevel->background.image_view;
+           //   assert (toplevel->images.size() <= 10);
+           //   struct infos
+           //   {
+           //     VkDescriptorImageInfo backgroundInfo = {};
+           //     VkDescriptorImageInfo imageInfos[tex_max_size-1] = {};
+           //   } infos;
+           //   {
+           //     infos.backgroundInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+           //     infos.backgroundInfo.imageView = toplevel->background.image_view;
                
-               auto image_iterator = toplevel->images.rbegin();
-               for (auto&& imageInfo : infos.imageInfos)
-               {
-                 imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                 imageInfo.imageView = image_iterator != toplevel->images.rend()
-                   ? image_iterator->image_view : toplevel->images.front().image_view;
-                 //imageInfo.imageView = toplevel->images.back().image_view;
-                 if (image_iterator != toplevel->images.rend())
-                   ++image_iterator;
-               }
-             }
+           //     auto image_iterator = toplevel->images.rbegin();
+           //     for (auto&& imageInfo : infos.imageInfos)
+           //     {
+           //       imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+           //       imageInfo.imageView = image_iterator != toplevel->images.rend()
+           //         ? image_iterator->image_view : toplevel->images.front().image_view;
+           //       //imageInfo.imageView = toplevel->images.back().image_view;
+           //       if (image_iterator != toplevel->images.rend())
+           //         ++image_iterator;
+           //     }
+           //   }
              VkDescriptorImageInfo samplerInfo = {};
              samplerInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
              samplerInfo.sampler = sampler;
 
-             VkWriteDescriptorSet descriptorWrites[2] = {};
+             VkWriteDescriptorSet descriptorWrites[1] = {};
                              
+             // descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+             // descriptorWrites[0].dstSet = 0;
+             // descriptorWrites[0].dstBinding = 0;
+             // descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+             // descriptorWrites[0].descriptorCount = tex_max_size;
+             // descriptorWrites[0].pImageInfo = &infos.backgroundInfo;
+
              descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
              descriptorWrites[0].dstSet = 0;
-             descriptorWrites[0].dstBinding = 0;
-             descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-             descriptorWrites[0].descriptorCount = 10;
-             descriptorWrites[0].pImageInfo = &infos.backgroundInfo;
-
-             descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-             descriptorWrites[1].dstSet = 0;
-             descriptorWrites[1].dstBinding = 1;
-             descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-             descriptorWrites[1].descriptorCount = 1;
-             descriptorWrites[1].pImageInfo = &samplerInfo;
+             descriptorWrites[0].dstBinding = 1;
+             descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+             descriptorWrites[0].descriptorCount = 1;
+             descriptorWrites[0].pImageInfo = &samplerInfo;
              
              // VkDescriptorBufferInfo zindex_pixel_buffer_info {};
              // zindex_pixel_buffer_info.buffer = toplevel->storage_zindex.get_buffer();
@@ -295,13 +296,18 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              // descriptorWrites[2].descriptorCount = 1;
              // descriptorWrites[2].pBufferInfo = &zindex_array_buffer_info;
              
+             vkCmdBindDescriptorSets (damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+                                      , image_pipeline0.pipeline_layout
+                                      , 0, 1, &toplevel->texture_descriptors.set
+                                      , 0, 0);
+
              auto static const vkCmdPushDescriptorSetKHR
                = vkGetDeviceProcAddr (toplevel->window.voutput.device, "vkCmdPushDescriptorSetKHR");
              assert (vkCmdPushDescriptorSetKHR != nullptr);
              reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(vkCmdPushDescriptorSetKHR)
                (damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS
                 , image_pipeline0.pipeline_layout
-                , 0, sizeof(descriptorWrites)/sizeof(descriptorWrites[0]), &descriptorWrites[0]);
+                , 1 /* from 1 */, sizeof(descriptorWrites)/sizeof(descriptorWrites[0]), &descriptorWrites[0]);
            }
            {
              auto offset = toplevel->background.cache->vertex_buffer_offset;
