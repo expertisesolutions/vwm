@@ -87,23 +87,94 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
        VkSampler sampler = detail::render_thread_create_sampler (toplevel->window.voutput.device);
        auto const image_pipeline0 = fastdraw::output::vulkan::create_image_pipeline (toplevel->window.voutput
                                                                                     , 0);
+       auto static const vkCmdPushDescriptorSetKHR_ptr
+         = vkGetDeviceProcAddr (toplevel->window.voutput.device, "vkCmdPushDescriptorSetKHR");
+       auto static const vkCmdPushDescriptorSetKHR
+         = reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(vkCmdPushDescriptorSetKHR_ptr);
+       assert (vkCmdPushDescriptorSetKHR != nullptr);
        // auto const image_pipeline1 = fastdraw::output::vulkan::create_image_pipeline (toplevel->window.voutput
        //                                                                              , 1);
        auto const indirect_pipeline = ftk::ui::vulkan
          ::create_indirect_draw_buffer_filler_pipeline (toplevel->window.voutput);
 
-       VkEvent fill_indirect_buffer_event;
-       VkEventCreateInfo event_info = {};
-       event_info.sType = VK_STRUCTURE_TYPE_EVENT_CREATE_INFO;
-       auto r = from_result (vkCreateEvent(toplevel->window.voutput.device, &event_info, nullptr
-                                           , &fill_indirect_buffer_event));
-       if (r != vulkan_error_code::success)
-         throw std::system_error(make_error_code(r));
+       // auto static const compute_pipeline = ftk::ui::vulkan
+       //   ::create_initialize_draw_buffer_pipeline (toplevel->window.voutput);
+       // initialize indirect buffer
+       {
+         VkFence initialization_fence;
+         VkFenceCreateInfo fenceInfo = {};
+         fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+         auto r = from_result (vkCreateFence (toplevel->window.voutput.device, &fenceInfo, nullptr, &initialization_fence));
+         if (r != vulkan_error_code::success)
+           throw std::system_error(make_error_code(r));
+
+         VkCommandPool command_pool = toplevel->window.voutput.command_pool;
+         VkCommandBuffer command_buffer;
+
+         VkCommandBufferAllocateInfo allocInfo = {};
+         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+         allocInfo.commandPool = command_pool;
+         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+         allocInfo.commandBufferCount = 1;
+
+         r = from_result (vkAllocateCommandBuffers(toplevel->window.voutput.device, &allocInfo
+                                                          , &command_buffer));
+         if (r != vulkan_error_code::success)
+           throw std::system_error(make_error_code (r));
+
+         VkCommandBufferBeginInfo beginInfo = {};
+         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+         r = from_result (vkBeginCommandBuffer(command_buffer, &beginInfo));
+         if (r != vulkan_error_code::success)
+           throw std::system_error(make_error_code(r));
+
+         // fill everything with 0's first
+         vkCmdFillBuffer (command_buffer, toplevel->indirect_draw_buffer
+                          , 0 /* offset */, (6 + 4096 + 4096) * sizeof(uint32_t)
+                          * toplevel->indirect_draw_info_array_size
+                          , 0);
+         for (std::size_t i = 0; i != toplevel->indirect_draw_info_array_size; ++i)
+         {
+           // vertex count filling
+           vkCmdFillBuffer (command_buffer, toplevel->indirect_draw_buffer
+                            , (6 + 4096 + 4096) * sizeof(uint32_t) * i, sizeof (uint32_t), 6);
+           // fill fg_zindex array
+           vkCmdFillBuffer (command_buffer, toplevel->indirect_draw_buffer
+                            , (6 + 4096 + 4096) * sizeof(uint32_t) * i
+                            + (6 + 4096) * sizeof(uint32_t)
+                            , sizeof (uint32_t) * 4096, 0xFFFFFFFF);
+         }
+
+         r = from_result (vkEndCommandBuffer(command_buffer));
+         if (r != vulkan_error_code::success)
+           throw std::system_error(make_error_code(r));
+
+         VkSubmitInfo submitInfo = {};
+         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+         submitInfo.commandBufferCount = 1;
+         submitInfo.pCommandBuffers = &command_buffer;
+
+         {
+           ftk::ui::backend::vulkan_queues::lock_graphic_queue lock_queue(toplevel->window.queues);
+           r = from_result(vkQueueSubmit(lock_queue.get_queue().vkqueue, 1, &submitInfo, initialization_fence));
+         }
+         if (r != vulkan_error_code::success)
+           throw std::system_error(make_error_code (r));
+
+         if (vkWaitForFences (toplevel->window.voutput.device, 1, &initialization_fence, VK_FALSE, -1) == VK_TIMEOUT)
+         {
+           //std::cout << "Timeout waiting for fence" << std::endl;
+           throw -1;
+         }
+         vkFreeCommandBuffers (toplevel->window.voutput.device, command_pool, 1, &command_buffer);
+         vkDestroyFence (toplevel->window.voutput.device, initialization_fence, nullptr);
+       }
        
        VkFence executionFinished[2];
        VkFenceCreateInfo fenceInfo = {};
        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-       r = from_result (vkCreateFence (toplevel->window.voutput.device, &fenceInfo, nullptr, &executionFinished[0]));
+       auto r = from_result (vkCreateFence (toplevel->window.voutput.device, &fenceInfo, nullptr, &executionFinished[0]));
        if (r != vulkan_error_code::success)
          throw std::system_error(make_error_code(r));
        r = from_result(vkCreateFence (toplevel->window.voutput.device, &fenceInfo, nullptr, &executionFinished[1]));
@@ -251,14 +322,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
            if (r != vulkan_error_code::success)
              throw std::system_error(make_error_code(r));
 
-           vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-           vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, indirect_pipeline.pipeline);
-           // VkRect2D scissor = renderPassInfo.renderArea;
-           // vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
-           VkRect2D scissor = {{0,0}, {1280,1000}};
-           vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
-
            {
              VkDescriptorBufferInfo ssboInfo = {};
              ssboInfo.buffer = toplevel->image_ssbo_buffer;
@@ -308,23 +371,34 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
                                       , 1, 1, &toplevel->sampler_descriptors.set
                                       , 0, 0);
 
-             auto static const vkCmdPushDescriptorSetKHR
-               = vkGetDeviceProcAddr (toplevel->window.voutput.device, "vkCmdPushDescriptorSetKHR");
-             assert (vkCmdPushDescriptorSetKHR != nullptr);
-             reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(vkCmdPushDescriptorSetKHR)
+             vkCmdPushDescriptorSetKHR
                (damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS
                 , indirect_pipeline.pipeline_layout
                 , 2 /* from 1 */, sizeof(descriptorWrites)/sizeof(descriptorWrites[0]), &descriptorWrites[0]);
+
+             vkCmdPushDescriptorSetKHR
+               (damaged_command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE
+                , indirect_pipeline.pipeline_layout
+                , 2 /* from 1 */, sizeof(descriptorWrites)/sizeof(descriptorWrites[0]), &descriptorWrites[0]);
+
+             uint32_t image_size = toplevel->images.size();
+             vkCmdPushConstants(damaged_command_buffer
+                                , indirect_pipeline.pipeline_layout
+                                , VK_SHADER_STAGE_VERTEX_BIT
+                                | VK_SHADER_STAGE_COMPUTE_BIT
+                                | VK_SHADER_STAGE_FRAGMENT_BIT
+                                , 0, sizeof(uint32_t), &image_size);
            }
-           // for (auto image_iterator = toplevel->images.rbegin()
-           //        ; image_iterator != toplevel->images.rend()
-           //        ; ++image_iterator)
-           // {
-           //   auto offset = image_iterator->cache->vertex_buffer_offset;
+
+           vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+           vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, indirect_pipeline.pipeline);
+           // VkRect2D scissor = renderPassInfo.renderArea;
+           // vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
+           VkRect2D scissor = {{0,0}, {1280,1000}};
+           vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
+
            auto offset = 0;
 
-           //std::cout << "vertex buffer offset " << offset << std::endl;
-             
              std::vector<VkDeviceSize> offsets;
              std::vector<VkBuffer> buffers;
 
@@ -336,7 +410,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              buffers.push_back(toplevel->vbuffer.get_buffer());
              offsets.push_back(offset);
              buffers.push_back(toplevel->vbuffer.get_buffer());
-  
+
              vkCmdBindVertexBuffers(damaged_command_buffer, 0, 4, &buffers[0], &offsets[0]);
              vkCmdDraw(damaged_command_buffer, 6, 1, 0, 0);
 
@@ -344,12 +418,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              memory_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
              memory_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
-             // VkBufferMemoryBarrier buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-             // buffer_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-             // buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-             // buffer_barrier.buffer = toplevel->indirect_draw_buffer;
-             // buffer_barrier.size = VK_WHOLE_SIZE;
-             
              vkCmdPipelineBarrier (damaged_command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
                                    , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
                                    | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
@@ -359,17 +427,18 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
 
              vkCmdEndRenderPass(damaged_command_buffer);
              vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-             
-             // vkCmdWaitEvents (damaged_command_buffer, 1, &fill_indirect_buffer_event
-             //                  , VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-             //                  , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
-             //                  , 0, nullptr, 0, nullptr, 0, nullptr);
 
              vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline0.pipeline);
              vkCmdDrawIndirect (damaged_command_buffer, toplevel->indirect_draw_buffer
                                 , sizeof(typename ftk::ui::toplevel_window<Backend>::indirect_draw_info)*i, 1, 0);
-           // }
+
            vkCmdEndRenderPass(damaged_command_buffer);
+
+           vkCmdFillBuffer (damaged_command_buffer, toplevel->indirect_draw_buffer
+                            , sizeof(uint32_t) /* offset */, (5 + 4096) * sizeof(uint32_t), 0);
+
+           vkCmdFillBuffer (damaged_command_buffer, toplevel->indirect_draw_buffer
+                            , sizeof(uint32_t) * (6 + 4096) /* offset */, 4096 * sizeof(uint32_t), 0xFFFFFFFF);
 
            r = from_result (vkEndCommandBuffer(damaged_command_buffer));
            if (r != vulkan_error_code::success)
@@ -473,27 +542,12 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
            vkFreeCommandBuffers (toplevel->window.voutput.device, commandPool, damaged_command_buffers.size()
                                  , &damaged_command_buffers[0]);
 
-           
-           std::cout << "images " << toplevel->images.size() << std::endl;
-           auto ssbo_data = toplevel->buffer_allocator.map (toplevel->image_ssbo_buffer);
-           auto image_info_ptr = static_cast<ftk::ui::toplevel_window<Backend>::image_info*>(ssbo_data)
-             , last_image_info_ptr = image_info_ptr + toplevel->images.size();
-           for (;image_info_ptr != last_image_info_ptr;++image_info_ptr)
-           {
-             std::cout << "zindex " << image_info_ptr->zindex
-                       << " x " << image_info_ptr->x
-                       << " y " << image_info_ptr->y
-                       << " w " << image_info_ptr->w
-                       << " h " << image_info_ptr->h
-                       << " has alpha " << image_info_ptr->has_alpha
-                       << " found alpha " << image_info_ptr->found_alpha << std::endl;
-           }
-           toplevel->buffer_allocator.unmap (toplevel->image_ssbo_buffer);
-
+           /*
+       {
            // indirect buffer
            auto data = toplevel->buffer_allocator.map (toplevel->indirect_draw_buffer);
            std::cout << "images " << toplevel->images.size() << std::endl;
-           for (std::size_t ind = 0; ind != framebuffer_damaged_regions.size(); ++ind)
+           for (std::size_t ind = 0; ind != toplevel->indirect_draw_info_array_size; ++ind)
            {
              auto indirect_draw_info = static_cast<ftk::ui::toplevel_window<Backend>::indirect_draw_info*>(data)
                + ind;
@@ -514,16 +568,17 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              std::cout << "(" << ind << ") NOT draw zindex " << indirect_draw_info->fg_zindex[i] << std::endl;
              }
 
-             indirect_draw_info->indirect.instanceCount = 0;
-             indirect_draw_info->fragment_data_length = 0;
-             std::memset (&indirect_draw_info->buffers_to_draw[0], 0
-                          , sizeof (indirect_draw_info->buffers_to_draw));
-             std::memset (&indirect_draw_info->fg_zindex[0], 255
-                          , sizeof (indirect_draw_info->fg_zindex));
+             // indirect_draw_info->indirect.instanceCount = 0;
+             // indirect_draw_info->fragment_data_length = 0;
+             // std::memset (&indirect_draw_info->buffers_to_draw[0], 0
+             //              , sizeof (indirect_draw_info->buffers_to_draw));
+             // std::memset (&indirect_draw_info->fg_zindex[0], 255
+             //              , sizeof (indirect_draw_info->fg_zindex));
              
            }
            toplevel->buffer_allocator.unmap (toplevel->image_ssbo_buffer);
-
+           }*/
+           
          }
 
      }
