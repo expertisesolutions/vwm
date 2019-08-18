@@ -300,19 +300,19 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
            VkRenderPassBeginInfo renderPassInfo = {};
            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
            renderPassInfo.framebuffer = toplevel->window.swapChainFramebuffers[imageIndex];
-           // renderPassInfo.renderArea.offset = {x, y};
-           // {
-           //   auto w = static_cast<uint32_t>(x) + width <= toplevel->window.voutput.swapChainExtent.width
-           //     ? width : toplevel->window.voutput.swapChainExtent.width - static_cast<uint32_t>(x);
-           //   auto h = static_cast<uint32_t>(y) + height <= toplevel->window.voutput.swapChainExtent.height
-           //     ? height : toplevel->window.voutput.swapChainExtent.height - static_cast<uint32_t>(y);
-           //   renderPassInfo.renderArea.extent = {w/* + image.x*/, h/* + image.y*/};
+           renderPassInfo.renderArea.offset = {x, y};
+           {
+             auto w = static_cast<uint32_t>(x) + width <= toplevel->window.voutput.swapChainExtent.width
+               ? width : toplevel->window.voutput.swapChainExtent.width - static_cast<uint32_t>(x);
+             auto h = static_cast<uint32_t>(y) + height <= toplevel->window.voutput.swapChainExtent.height
+               ? height : toplevel->window.voutput.swapChainExtent.height - static_cast<uint32_t>(y);
+             renderPassInfo.renderArea.extent = {w/* + image.x*/, h/* + image.y*/};
 
-           //   std::cout << "rendering to " << renderPassInfo.renderArea.offset.x
-           //             << "x" << renderPassInfo.renderArea.offset.y
-           //             << " size " << renderPassInfo.renderArea.extent.width
-           //             << "x" << renderPassInfo.renderArea.extent.height << std::endl;
-           // }
+             std::cout << "rendering to " << renderPassInfo.renderArea.offset.x
+                       << "x" << renderPassInfo.renderArea.offset.y
+                       << " size " << renderPassInfo.renderArea.extent.width
+                       << "x" << renderPassInfo.renderArea.extent.height << std::endl;
+           }
            renderPassInfo.renderPass = toplevel->window.voutput.renderpass;
 
            VkCommandBufferBeginInfo beginInfo = {};
@@ -392,9 +392,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
 
            vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
            vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, indirect_pipeline.pipeline);
-           // VkRect2D scissor = renderPassInfo.renderArea;
-           // vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
-           VkRect2D scissor = {{0,0}, {1280,1000}};
+           VkRect2D scissor = renderPassInfo.renderArea;
            vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
 
            auto offset = 0;
