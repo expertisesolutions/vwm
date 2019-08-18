@@ -11,6 +11,7 @@
 #define VWM_RENDER_THREAD_HPP
 
 #include <ftk/ui/toplevel_window.hpp>
+#include <ftk/ui/backend/vulkan_indirect_draw.hpp>
 
 #include <thread>
 #include <mutex>
@@ -86,13 +87,23 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
        VkSampler sampler = detail::render_thread_create_sampler (toplevel->window.voutput.device);
        auto const image_pipeline0 = fastdraw::output::vulkan::create_image_pipeline (toplevel->window.voutput
                                                                                     , 0);
-       auto const image_pipeline1 = fastdraw::output::vulkan::create_image_pipeline (toplevel->window.voutput
-                                                                                    , 1);
+       // auto const image_pipeline1 = fastdraw::output::vulkan::create_image_pipeline (toplevel->window.voutput
+       //                                                                              , 1);
+       auto const indirect_pipeline = ftk::ui::vulkan
+         ::create_indirect_draw_buffer_filler_pipeline (toplevel->window.voutput);
 
+       VkEvent fill_indirect_buffer_event;
+       VkEventCreateInfo event_info = {};
+       event_info.sType = VK_STRUCTURE_TYPE_EVENT_CREATE_INFO;
+       auto r = from_result (vkCreateEvent(toplevel->window.voutput.device, &event_info, nullptr
+                                           , &fill_indirect_buffer_event));
+       if (r != vulkan_error_code::success)
+         throw std::system_error(make_error_code(r));
+       
        VkFence executionFinished[2];
        VkFenceCreateInfo fenceInfo = {};
        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-       auto r = from_result (vkCreateFence (toplevel->window.voutput.device, &fenceInfo, nullptr, &executionFinished[0]));
+       r = from_result (vkCreateFence (toplevel->window.voutput.device, &fenceInfo, nullptr, &executionFinished[0]));
        if (r != vulkan_error_code::success)
          throw std::system_error(make_error_code(r));
        r = from_result(vkCreateFence (toplevel->window.voutput.device, &fenceInfo, nullptr, &executionFinished[1]));
@@ -137,6 +148,17 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          auto framebuffer_damaged_regions = std::move (toplevel->framebuffers_damaged_regions[imageIndex]);
          assert (toplevel->framebuffers_damaged_regions[imageIndex].empty());
 
+         if (framebuffer_damaged_regions.size() > 32)
+         {
+           auto first = std::next (framebuffer_damaged_regions.begin(), 32)
+             , last = framebuffer_damaged_regions.end();
+           for (;first != last; ++first)
+           {
+             toplevel->framebuffers_damaged_regions[imageIndex].push_back (std::move(*first));
+           }
+           framebuffer_damaged_regions.erase (first, last);
+         }
+
          unsigned int i = 0;
          for (auto&& image : toplevel->images)
          {
@@ -147,8 +169,12 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              // images.push_back(image);
              image.must_draw[imageIndex] = false;
              image.framebuffers_regions[imageIndex] = {image.x, image.y, image.width, image.height};
-             framebuffer_damaged_regions.push_back
-               ({image.x, image.y, image.width, image.height});
+             if (framebuffer_damaged_regions.size() < 32)
+               framebuffer_damaged_regions.push_back
+                 ({image.x, image.y, image.width, image.height});
+             else
+               toplevel->framebuffers_damaged_regions[imageIndex].push_back
+                 ({image.x, image.y, image.width, image.height});
            }
            i++;
          }
@@ -160,7 +186,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          VkCommandPool commandPool = toplevel->window.voutput.command_pool;
 
          std::vector<VkCommandBuffer> damaged_command_buffers;
-
 
          damaged_command_buffers.resize (framebuffer_damaged_regions.size());
          
@@ -177,10 +202,9 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
            if (r != vulkan_error_code::success)
              throw std::system_error(make_error_code (r));
          }
-           
-         // std::cout << "image index " << imageIndex << " damaged regions " << framebuffer_damaged_regions.size()
-         //           << std::endl;
 
+
+         std::cout << "recording " << framebuffer_damaged_regions.size() << " regions" << std::endl;
          // draw damage areas
          i = 0;
          for (auto&& region : framebuffer_damaged_regions)
@@ -210,95 +234,70 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
                        << " size " << renderPassInfo.renderArea.extent.width
                        << "x" << renderPassInfo.renderArea.extent.height << std::endl;
            }
-           // renderPassInfo.renderArea.offset = {0,0};
-           // renderPassInfo.renderArea.extent = {toplevel->window.voutput.swapChainExtent.width
-           //                                     , toplevel->window.voutput.swapChainExtent.height};
            renderPassInfo.renderPass = toplevel->window.voutput.renderpass;
 
            VkCommandBufferBeginInfo beginInfo = {};
            beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
            beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-           //beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
            auto r = from_result (vkBeginCommandBuffer(damaged_command_buffer, &beginInfo));
            if (r != vulkan_error_code::success)
              throw std::system_error(make_error_code(r));
 
            vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-           if (imageIndex == 0)
-             vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline0.pipeline);
-           else
-             vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline1.pipeline);
-           VkRect2D scissor = renderPassInfo.renderArea;
+           vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, indirect_pipeline.pipeline);
+           // VkRect2D scissor = renderPassInfo.renderArea;
+           // vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
+           VkRect2D scissor = {{0,0}, {1280,1000}};
            vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
-           // constexpr const int tex_max_size = 30;
+
            {
-           //   assert (toplevel->images.size() <= 10);
-           //   struct infos
-           //   {
-           //     VkDescriptorImageInfo backgroundInfo = {};
-           //     VkDescriptorImageInfo imageInfos[tex_max_size-1] = {};
-           //   } infos;
-           //   {
-           //     infos.backgroundInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-           //     infos.backgroundInfo.imageView = toplevel->background.image_view;
-               
-           //     auto image_iterator = toplevel->images.rbegin();
-           //     for (auto&& imageInfo : infos.imageInfos)
-           //     {
-           //       imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-           //       imageInfo.imageView = image_iterator != toplevel->images.rend()
-           //         ? image_iterator->image_view : toplevel->images.front().image_view;
-           //       //imageInfo.imageView = toplevel->images.back().image_view;
-           //       if (image_iterator != toplevel->images.rend())
-           //         ++image_iterator;
-           //     }
-           //   }
-             VkDescriptorImageInfo samplerInfo = {};
-             samplerInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-             samplerInfo.sampler = sampler;
+             VkDescriptorBufferInfo ssboInfo = {};
+             ssboInfo.buffer = toplevel->image_ssbo_buffer;
+             ssboInfo.range = VK_WHOLE_SIZE;
 
-             VkWriteDescriptorSet descriptorWrites[1] = {};
+             VkDescriptorBufferInfo ssboZIndexInfo = {};
+             ssboZIndexInfo.buffer = toplevel->image_zindex_ssbo_buffer;
+             ssboZIndexInfo.range = VK_WHOLE_SIZE;
+
+             VkDescriptorBufferInfo indirect_draw_info = {};
+             indirect_draw_info.buffer = toplevel->indirect_draw_buffer;
+             indirect_draw_info.range = VK_WHOLE_SIZE;
+             indirect_draw_info.offset = i*sizeof(typename ftk::ui::toplevel_window<Backend>::indirect_draw_info);
+
+             std::cout << "offset of indirect draw info " << indirect_draw_info.offset << std::endl;
+             
+             VkWriteDescriptorSet descriptorWrites[3] = {};
                              
-             // descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-             // descriptorWrites[0].dstSet = 0;
-             // descriptorWrites[0].dstBinding = 0;
-             // descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-             // descriptorWrites[0].descriptorCount = tex_max_size;
-             // descriptorWrites[0].pImageInfo = &infos.backgroundInfo;
-
              descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
              descriptorWrites[0].dstSet = 0;
-             descriptorWrites[0].dstBinding = 1;
-             descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+             descriptorWrites[0].dstBinding = 0;
+             descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
              descriptorWrites[0].descriptorCount = 1;
-             descriptorWrites[0].pImageInfo = &samplerInfo;
-             
-             // VkDescriptorBufferInfo zindex_pixel_buffer_info {};
-             // zindex_pixel_buffer_info.buffer = toplevel->storage_zindex.get_buffer();
-             // zindex_pixel_buffer_info.range = VK_WHOLE_SIZE;
+             descriptorWrites[0].pBufferInfo = &ssboInfo;
 
-             // descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-             // descriptorWrites[1].dstSet = 0;
-             // descriptorWrites[1].dstBinding = 2;
-             // descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-             // descriptorWrites[1].descriptorCount = 1;
-             // descriptorWrites[1].pBufferInfo = &zindex_pixel_buffer_info;
+             descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+             descriptorWrites[1].dstSet = 0;
+             descriptorWrites[1].dstBinding = 1;
+             descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+             descriptorWrites[1].descriptorCount = 1;
+             descriptorWrites[1].pBufferInfo = &ssboZIndexInfo;
 
-             // VkDescriptorBufferInfo zindex_array_buffer_info {};
-             // zindex_array_buffer_info.buffer = toplevel->zindex_array.get_buffer();
-             // zindex_array_buffer_info.range = VK_WHOLE_SIZE;
-    
-             // descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-             // descriptorWrites[2].dstSet = 0;
-             // descriptorwrites[2].dstBinding = 3;
-             // descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-             // descriptorWrites[2].descriptorCount = 1;
-             // descriptorWrites[2].pBufferInfo = &zindex_array_buffer_info;
+             descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+             descriptorWrites[2].dstSet = 0;
+             descriptorWrites[2].dstBinding = 2;
+             descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+             descriptorWrites[2].descriptorCount = 1;
+             descriptorWrites[2].pBufferInfo = &indirect_draw_info;
              
              vkCmdBindDescriptorSets (damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS
-                                      , image_pipeline0.pipeline_layout
+                                      , indirect_pipeline.pipeline_layout
                                       , 0, 1, &toplevel->texture_descriptors.set
+                                      , 0, 0);
+
+             vkCmdBindDescriptorSets (damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+                                      , indirect_pipeline.pipeline_layout
+                                      , 1, 1, &toplevel->sampler_descriptors.set
                                       , 0, 0);
 
              auto static const vkCmdPushDescriptorSetKHR
@@ -306,36 +305,17 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              assert (vkCmdPushDescriptorSetKHR != nullptr);
              reinterpret_cast<PFN_vkCmdPushDescriptorSetKHR>(vkCmdPushDescriptorSetKHR)
                (damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS
-                , image_pipeline0.pipeline_layout
-                , 1 /* from 1 */, sizeof(descriptorWrites)/sizeof(descriptorWrites[0]), &descriptorWrites[0]);
+                , indirect_pipeline.pipeline_layout
+                , 2 /* from 1 */, sizeof(descriptorWrites)/sizeof(descriptorWrites[0]), &descriptorWrites[0]);
            }
-           {
-             auto offset = toplevel->background.cache->vertex_buffer_offset;
-             
-             std::cout << "background vertex buffer offset " << offset << std::endl;
-             
-             std::vector<VkDeviceSize> offsets;
-             std::vector<VkBuffer> buffers;
+           // for (auto image_iterator = toplevel->images.rbegin()
+           //        ; image_iterator != toplevel->images.rend()
+           //        ; ++image_iterator)
+           // {
+           //   auto offset = image_iterator->cache->vertex_buffer_offset;
+           auto offset = 0;
 
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-  
-             vkCmdBindVertexBuffers(damaged_command_buffer, 0, 4, &buffers[0], &offsets[0]);
-             vkCmdDraw(damaged_command_buffer, 6, 1, 0, 0);
-           }
-           for (auto image_iterator = toplevel->images.rbegin()
-                  ; image_iterator != toplevel->images.rend()
-                  ; ++image_iterator)
-           {
-             auto offset = image_iterator->cache->vertex_buffer_offset;
-
-             std::cout << "vertex buffer offset " << offset << std::endl;
+           //std::cout << "vertex buffer offset " << offset << std::endl;
              
              std::vector<VkDeviceSize> offsets;
              std::vector<VkBuffer> buffers;
@@ -351,7 +331,33 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
   
              vkCmdBindVertexBuffers(damaged_command_buffer, 0, 4, &buffers[0], &offsets[0]);
              vkCmdDraw(damaged_command_buffer, 6, 1, 0, 0);
-           }
+
+             // VkMemoryBarrier memory_barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+             // memory_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+             // memory_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+             // VkBufferMemoryBarrier buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+             // buffer_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+             // buffer_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+             // buffer_barrier.buffer = toplevel->indirect_draw_buffer;
+             // buffer_barrier.size = VK_WHOLE_SIZE;
+             
+             // vkCmdPipelineBarrier (damaged_command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+             //                       , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_DEPENDENCY_DEVICE_GROUP_BIT
+             //                       , 1, &memory_barrier, 0, /*&buffer_barrier*/nullptr, 0, nullptr);
+
+             vkCmdEndRenderPass(damaged_command_buffer);
+             vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+             
+             // vkCmdWaitEvents (damaged_command_buffer, 1, &fill_indirect_buffer_event
+             //                  , VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+             //                  , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
+             //                  , 0, nullptr, 0, nullptr, 0, nullptr);
+
+             vkCmdBindPipeline(damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline0.pipeline);
+             vkCmdDrawIndirect (damaged_command_buffer, toplevel->indirect_draw_buffer
+                                , sizeof(typename ftk::ui::toplevel_window<Backend>::indirect_draw_info)*i, 1, 0);
+           // }
            vkCmdEndRenderPass(damaged_command_buffer);
 
            r = from_result (vkEndCommandBuffer(damaged_command_buffer));
@@ -365,10 +371,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
                              
          std::vector<VkCommandBuffer> buffers = damaged_command_buffers;
-         // for (auto&& image : images)
-         // {
-         //   buffers.push_back (image.cache->command_buffer[imageIndex]);
-         // }
 
          VkSemaphore waitSemaphores[] = {imageAvailable};
          VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
@@ -384,6 +386,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          using fastdraw::output::vulkan::from_result;
          using fastdraw::output::vulkan::vulkan_error_code;
 
+         auto queue_begin = std::chrono::high_resolution_clock::now();
          {
            ftk::ui::backend::vulkan_queues::lock_graphic_queue lock_queue(toplevel->window.queues);
          
@@ -393,17 +396,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              throw std::system_error(make_error_code (r));
          }
 
-         //std::cout << "graphic" << std::endl;
-
-         // std::cout << "waiting on fence" << std::endl;
-       
-         //std::cout << "waited for fence" << std::endl;
-         //if (!buffer_cache.empty())
          {
-           //static unsigned int submissions = 0;
-           //std::cout << "submit presentation" << ++submissions <<  std::endl;
-           //CHRONO_COMPARE()
-
            VkPresentInfoKHR presentInfo = {};
            presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 
@@ -438,7 +431,64 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
 
            vkFreeCommandBuffers (toplevel->window.voutput.device, commandPool, damaged_command_buffers.size()
                                  , &damaged_command_buffers[0]);
-           
+
+           {
+             auto now = std::chrono::high_resolution_clock::now();
+             auto diff = now - queue_begin;
+             std::cout << "Time running drawing command "
+                       << std::chrono::duration_cast<std::chrono::milliseconds>(diff).count()
+                       << "ms" << std::endl;
+           }
+
+           std::cout << "images " << toplevel->images.size() << std::endl;
+           auto ssbo_data = toplevel->buffer_allocator.map (toplevel->image_ssbo_buffer);
+           auto image_info_ptr = static_cast<ftk::ui::toplevel_window<Backend>::image_info*>(ssbo_data)
+             , last_image_info_ptr = image_info_ptr + toplevel->images.size();
+           for (;image_info_ptr != last_image_info_ptr;++image_info_ptr)
+           {
+             std::cout << "zindex " << image_info_ptr->zindex
+                       << " x " << image_info_ptr->x
+                       << " y " << image_info_ptr->y
+                       << " w " << image_info_ptr->w
+                       << " h " << image_info_ptr->h
+                       << " has alpha " << image_info_ptr->has_alpha
+                       << " found alpha " << image_info_ptr->found_alpha << std::endl;
+           }
+           toplevel->buffer_allocator.unmap (toplevel->image_ssbo_buffer);
+
+           // indirect buffer
+           auto data = toplevel->buffer_allocator.map (toplevel->indirect_draw_buffer);
+           std::cout << "images " << toplevel->images.size() << std::endl;
+           for (std::size_t ind = 0; ind != framebuffer_damaged_regions.size(); ++ind)
+           {
+             auto indirect_draw_info = static_cast<ftk::ui::toplevel_window<Backend>::indirect_draw_info*>(data)
+               + ind;
+             std::size_t fragment_length;
+             std::cout << "== (" << ind << ") vertex count " << indirect_draw_info->indirect.vertexCount
+                       << " instance count " << indirect_draw_info->indirect.instanceCount
+                       << " first vertex " << indirect_draw_info->indirect.firstVertex
+                       << " first_instance " << indirect_draw_info->indirect.firstInstance
+                       << " image length " << indirect_draw_info->image_length
+                       << " fragment data length " << (fragment_length = indirect_draw_info->fragment_data_length)
+                       << std::endl;
+             {
+               std::size_t i = 0;
+             for (; i != fragment_length; ++i)
+             {
+               std::cout << "(" << ind << ") draw zindex " << indirect_draw_info->fg_zindex[i] << std::endl;
+             }
+             std::cout << "(" << ind << ") NOT draw zindex " << indirect_draw_info->fg_zindex[i] << std::endl;
+             }
+
+             indirect_draw_info->indirect.instanceCount = 0;
+             indirect_draw_info->fragment_data_length = 0;
+             std::memset (&indirect_draw_info->buffers_to_draw[0], 0
+                          , sizeof (indirect_draw_info->buffers_to_draw));
+             std::memset (&indirect_draw_info->fg_zindex[0], 255
+                          , sizeof (indirect_draw_info->fg_zindex));
+             
+           }
+           toplevel->buffer_allocator.unmap (toplevel->image_ssbo_buffer);
            {
              auto now = std::chrono::high_resolution_clock::now();
              auto diff = now - last_time;
@@ -448,212 +498,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
                        << "ms" << std::endl;
            }
          }
-       //CHRONO_COMPARE()
-         
-         //std::cout << "recording buffer" << std::endl;
-
-       //   std::unique_ptr<VkDescriptorSet[]> descriptorSet {new VkDescriptorSet[images.size()]};
-       //   {
-       //     VkDescriptorPool descriptorPool;
-       //     /*std::array<*/VkDescriptorPoolSize/*, 2>*/ poolSizes = {};
-       //     // poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-       //     // poolSizes[0].descriptorCount = /*static_cast<uint32_t>(swapChainImages.size())*/1;
-       //     poolSizes/*[1]*/.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-       //     poolSizes/*[1]*/.descriptorCount = images.size();
-
-       //     VkDescriptorPoolCreateInfo poolInfo = {};
-       //     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-       //     poolInfo.poolSizeCount = 1/*static_cast<uint32_t>(poolSizes.size())*/;
-       //     poolInfo.pPoolSizes = &poolSizes/*.data()*/;
-       //     poolInfo.maxSets = images.size();
-
-       //     //CHRONO_COMPARE()
-       //     if (vkCreateDescriptorPool(toplevel->window.voutput.device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
-       //       throw std::runtime_error("failed to create descriptor pool!");
-       //     }
-
-       //     std::unique_ptr<VkDescriptorSetLayout[]> descriptor_set_layouts {new VkDescriptorSetLayout[images.size()]};
-       //     for (VkDescriptorSetLayout* first = &descriptor_set_layouts[0]
-       //            , *last = first + images.size(); first != last; ++ first)
-       //       *first = image_pipeline.descriptorSetLayout;
-           
-       //     VkDescriptorSetAllocateInfo allocInfo = {};
-       //     allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-       //     allocInfo.descriptorPool = descriptorPool;
-       //     allocInfo.descriptorSetCount = images.size();
-       //     allocInfo.pSetLayouts = &descriptor_set_layouts[0];
-
-       //     //CHRONO_COMPARE()
-       //     if (vkAllocateDescriptorSets(toplevel->window.voutput.device, &allocInfo, &descriptorSet[0]) != VK_SUCCESS) {
-       //       throw std::runtime_error("failed to allocate descriptor sets!");
-       //     }
-       //     //CHRONO_COMPARE()
-       //   }
-         
-       //   std::size_t descriptor_index = 0;
-       //   for (auto&& image : images)
-       //   {
-       //     //CHRONO_START()
-       //     using fastdraw::output::vulkan::from_result;
-       //     using fastdraw::output::vulkan::vulkan_error_code;
-       //     VkDescriptorImageInfo imageInfo = {};
-       //     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-       //     imageInfo.imageView = image.image_view;
-       //     imageInfo.sampler = sampler;
-
-       //     /*std::array<*/VkWriteDescriptorSet/*, 2>*/ descriptorWrites = {};
-                             
-       //     descriptorWrites/*[1]*/.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-       //     descriptorWrites/*[1]*/.dstSet = descriptorSet[descriptor_index]/*s[i]*/;
-       //     descriptorWrites/*[1]*/.dstBinding = 1;
-       //     descriptorWrites/*[1]*/.dstArrayElement = 0;
-       //     descriptorWrites/*[1]*/.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-       //     descriptorWrites/*[1]*/.descriptorCount = 1;
-       //     descriptorWrites/*[1]*/.pImageInfo = &imageInfo;
-
-       //     //CHRONO_COMPARE()
-       //     vkUpdateDescriptorSets(toplevel->window.voutput.device, 1/*static_cast<uint32_t>(descriptorWrites.size())*/
-       //                            , &descriptorWrites/*.data()*/, 0, nullptr);
-       //     //CHRONO_COMPARE()
-       //     ++descriptor_index;
-       //   }
-
-       //   descriptor_index = 0;
-       //   for (auto&& image : images)
-       //   {
-       //     using fastdraw::output::vulkan::from_result;
-       //     using fastdraw::output::vulkan::vulkan_error_code;
-
-       //     VkCommandBufferBeginInfo beginInfo = {};
-       //     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-       //     if (vkBeginCommandBuffer(commandBuffer[descriptor_index], &beginInfo) != VK_SUCCESS) {
-       //       throw std::runtime_error("failed to begin recording command buffer!");
-       //     }
-
-       //     VkRenderPassBeginInfo renderPassInfo = {};
-       //     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-       //     renderPassInfo.framebuffer = toplevel->window.swapChainFramebuffers[imageIndex];
-       //     renderPassInfo.renderArea.offset = {image.x, image.y};
-       //     auto width = image.x + image.width <= toplevel->window.voutput.swapChainExtent.width ? image.width : toplevel->window.voutput.swapChainExtent.width - image.x;
-       //     auto height = image.y + image.height <= toplevel->window.voutput.swapChainExtent.height ? image.height : toplevel->window.voutput.swapChainExtent.height - image.y;
-       //     renderPassInfo.renderArea.extent = {width/* + image.x*/, height/* + image.y*/};
-       //     VkClearValue clear_value;
-       //     // clearing for testing
-       //     if (!descriptor_index)
-       //     {
-       //       renderPassInfo.renderPass = toplevel->window.voutput.renderpass;
-       //       renderPassInfo.clearValueCount = 1;
-       //       clear_value.color.uint32[0] = 0;
-       //       clear_value.color.uint32[1] = 0;
-       //       clear_value.color.uint32[2] = 0;
-       //       clear_value.color.uint32[3] = 0;
-       //       renderPassInfo.pClearValues = &clear_value;
-       //     }
-       //     else
-       //       renderPassInfo.renderPass = renderPass;
-         
-       //     vkCmdBeginRenderPass(commandBuffer[descriptor_index], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-       //     vkCmdBindPipeline(commandBuffer[descriptor_index], VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline.pipeline);
-
-       //     std::vector<VkDeviceSize> offsets;
-       //     std::vector<VkBuffer> buffers;
-
-       //     auto static const vertex_data_size = (12 + 12 + 16)*sizeof(float);
-
-       //     if (toplevel->vbuffer.size())
-       //     {
-       //       auto vbuffer = toplevel->vbuffer.get_buffer();
-           
-       //       offsets.push_back(vertex_data_size * descriptor_index);
-       //       buffers.push_back(vbuffer);
-       //       offsets.push_back(vertex_data_size * descriptor_index);
-       //       buffers.push_back(vbuffer);
-
-       //       vkCmdBindVertexBuffers(commandBuffer[descriptor_index], 0, 2, &buffers[0], &offsets[0]);
-       //     }
-           
-       //     vkCmdBindDescriptorSets(commandBuffer[descriptor_index], VK_PIPELINE_BIND_POINT_GRAPHICS, image_pipeline.pipeline_layout
-       //                             , 0, 1, &descriptorSet[descriptor_index] , 0, nullptr);
-           
-       //     vkCmdDraw(commandBuffer[descriptor_index], 6, 1, 0, 0);
-
-       //     vkCmdEndRenderPass(commandBuffer[descriptor_index]);
-
-       //     if (vkEndCommandBuffer(commandBuffer[descriptor_index]) != VK_SUCCESS) {
-       //       throw std::runtime_error("failed to record command buffer!");
-       //     }
-       //     ++descriptor_index;
-       // } // for ?
-
-       //   //vkDestroyRenderPass(toplevel->window.voutput.device, renderPass, nullptr);
-
-       // //CHRONO_COMPARE()
-       // {
-       //   VkSubmitInfo submitInfo = {};
-       //   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-                             
-       //   std::cout << "submit graphics" << std::endl;
-
-       //   //std::array<VkCommandBuffer, 2> first_and_last{commandBuffer[0], commandBuffer[images.size()-1]};
-         
-       //   VkSemaphore waitSemaphores[] = {imageAvailable};
-       //   VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-       //   submitInfo.waitSemaphoreCount = 1;
-       //   submitInfo.pWaitSemaphores = waitSemaphores;
-       //   submitInfo.pWaitDstStageMask = waitStages;
-       //   submitInfo.commandBufferCount = images.size();
-       //   submitInfo.pCommandBuffers = &commandBuffer[0];
-
-       //   VkSemaphore signalSemaphores[] = {renderFinished};
-       //   submitInfo.signalSemaphoreCount = 1;
-       //   submitInfo.pSignalSemaphores = signalSemaphores;
-       //   using fastdraw::output::vulkan::from_result;
-       //   using fastdraw::output::vulkan::vulkan_error_code;
-
-       //   ftk::ui::backend::vulkan_queues::lock_graphic_queue lock_queue(toplevel->window.queues);
-         
-       //   auto r = from_result(vkQueueSubmit(lock_queue.get_queue().vkqueue, 1, &submitInfo, toplevel->window.executionFinished));
-       //   if (r != vulkan_error_code::success)
-       //     throw std::system_error(make_error_code (r));
-       // }
-       //CHRONO_COMPARE_FORCE()
-
-       // std::cout << "graphic" << std::endl;
-       // if (vkWaitForFences (toplevel->window.voutput.device, 1, &toplevel->window.executionFinished, VK_FALSE, -1) == VK_TIMEOUT)
-       // {
-       //   std::cout << "Timeout waiting for fence" << std::endl;
-       //   throw -1;
-       // }
-       // vkResetFences (toplevel->window.voutput.device, 1, &toplevel->window.executionFinished);
-                           
-       // std::cout << "submit presentation" << std::endl;
-       // //CHRONO_COMPARE()
-       // {
-       //   VkPresentInfoKHR presentInfo = {};
-       //   presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
-       //   VkSemaphore waitSemaphores[] = {renderFinished};
-         
-       //   presentInfo.waitSemaphoreCount = 1;
-       //   presentInfo.pWaitSemaphores = waitSemaphores;
-
-       //   VkSwapchainKHR swapChains[] = {toplevel->window.swapChain};
-       //   presentInfo.swapchainCount = 1;
-       //   presentInfo.pSwapchains = swapChains;
-       //   presentInfo.pImageIndices = &imageIndex;
-       //   presentInfo.pResults = nullptr; // Optional
-
-       //   ftk::ui::backend::vulkan_queues::lock_presentation_queue lock_queue(toplevel->window.queues);
-         
-       //   using fastdraw::output::vulkan::from_result;
-       //   using fastdraw::output::vulkan::vulkan_error_code;
-
-       //   auto r = from_result (vkQueuePresentKHR(lock_queue.get_queue().vkqueue, &presentInfo));
-       //   if (r != vulkan_error_code::success)
-       //     throw std::system_error (make_error_code (r));
-       // }
-       // //CHRONO_COMPARE()
      }
      std::cout << "Exiting render thread" << std::endl;
    });
