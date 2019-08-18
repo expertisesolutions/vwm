@@ -112,12 +112,12 @@ int main(void) {
                       , static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
                       , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
 
-  w.framebuffers_damaged_regions[0].push_back
-    ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
-      , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
-  w.framebuffers_damaged_regions[1].push_back
-    ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
-      , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
+  // w.framebuffers_damaged_regions[0].push_back
+  //   ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
+  //     , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
+  // w.framebuffers_damaged_regions[1].push_back
+  //   ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
+  //     , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
   w.append_image ({background_img.image_view, 100, 100, 160, 90});
   vwm::render_dirty (dirty, render_mutex, condvar)();
 
@@ -205,7 +205,7 @@ int main(void) {
 
   vwm::ui::detail::timer_wait
     (&loop
-     , 1*1000
+     , 10
      , 10
      , [&] (uv_timer_t* timer)
        {
@@ -225,15 +225,23 @@ int main(void) {
          }
          else
          {
-           static bool one_time = false;
+           // static bool one_time = false;
+           static int times = 0;
 
-           if (!one_time)
+           if (++times == 100)
            {
-             one_time = true;
-             w.append_image ({background_img.image_view, 500, 100, 160, 90});
+             uv_timer_stop (timer);
+             return;
            }
-           uv_timer_set_repeat (timer, 1000);
-           vwm::render_dirty (dirty, l, condvar)();
+
+           // if (!one_time)
+           // {
+           //   one_time = true;
+           //   w.append_image ({background_img.image_view, 500, 100, 160, 90});
+           // }
+           // uv_timer_set_repeat (timer, 1000);
+           // vwm::render_dirty (dirty, l, condvar)();
+           timer_iteration = 0;
            return;
          }
          //std::cout << "please render mouse (" << w.images.size() << ") at " << ev.x << "x" << ev.y << std::endl;

@@ -130,6 +130,14 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
                                    , std::numeric_limits<uint64_t>::max(), imageAvailable
                                    , /*toplevel->window.executionFinished*/nullptr, &imageIndex);
              std::cout << "Acquired image index " << imageIndex << std::endl;
+             {
+               auto now = std::chrono::high_resolution_clock::now();
+               auto diff = now - last_time;
+               last_time = now;
+               std::cout << "Time between frames "
+                         << std::chrono::duration_cast<std::chrono::milliseconds>(diff).count()
+                         << "ms" << std::endl;
+             }
              l.lock();
            }
            if (!dirty && !exit)
@@ -221,19 +229,19 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
            VkRenderPassBeginInfo renderPassInfo = {};
            renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
            renderPassInfo.framebuffer = toplevel->window.swapChainFramebuffers[imageIndex];
-           renderPassInfo.renderArea.offset = {x, y};
-           {
-             auto w = static_cast<uint32_t>(x) + width <= toplevel->window.voutput.swapChainExtent.width
-               ? width : toplevel->window.voutput.swapChainExtent.width - static_cast<uint32_t>(x);
-             auto h = static_cast<uint32_t>(y) + height <= toplevel->window.voutput.swapChainExtent.height
-               ? height : toplevel->window.voutput.swapChainExtent.height - static_cast<uint32_t>(y);
-             renderPassInfo.renderArea.extent = {w/* + image.x*/, h/* + image.y*/};
+           // renderPassInfo.renderArea.offset = {x, y};
+           // {
+           //   auto w = static_cast<uint32_t>(x) + width <= toplevel->window.voutput.swapChainExtent.width
+           //     ? width : toplevel->window.voutput.swapChainExtent.width - static_cast<uint32_t>(x);
+           //   auto h = static_cast<uint32_t>(y) + height <= toplevel->window.voutput.swapChainExtent.height
+           //     ? height : toplevel->window.voutput.swapChainExtent.height - static_cast<uint32_t>(y);
+           //   renderPassInfo.renderArea.extent = {w/* + image.x*/, h/* + image.y*/};
 
-             std::cout << "rendering to " << renderPassInfo.renderArea.offset.x
-                       << "x" << renderPassInfo.renderArea.offset.y
-                       << " size " << renderPassInfo.renderArea.extent.width
-                       << "x" << renderPassInfo.renderArea.extent.height << std::endl;
-           }
+           //   std::cout << "rendering to " << renderPassInfo.renderArea.offset.x
+           //             << "x" << renderPassInfo.renderArea.offset.y
+           //             << " size " << renderPassInfo.renderArea.extent.width
+           //             << "x" << renderPassInfo.renderArea.extent.height << std::endl;
+           // }
            renderPassInfo.renderPass = toplevel->window.voutput.renderpass;
 
            VkCommandBufferBeginInfo beginInfo = {};
@@ -332,9 +340,9 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              vkCmdBindVertexBuffers(damaged_command_buffer, 0, 4, &buffers[0], &offsets[0]);
              vkCmdDraw(damaged_command_buffer, 6, 1, 0, 0);
 
-             // VkMemoryBarrier memory_barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-             // memory_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-             // memory_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+             VkMemoryBarrier memory_barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+             memory_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+             memory_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 
              // VkBufferMemoryBarrier buffer_barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
              // buffer_barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -342,9 +350,12 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              // buffer_barrier.buffer = toplevel->indirect_draw_buffer;
              // buffer_barrier.size = VK_WHOLE_SIZE;
              
-             // vkCmdPipelineBarrier (damaged_command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-             //                       , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT, VK_DEPENDENCY_DEVICE_GROUP_BIT
-             //                       , 1, &memory_barrier, 0, /*&buffer_barrier*/nullptr, 0, nullptr);
+             vkCmdPipelineBarrier (damaged_command_buffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+                                   , VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
+                                   | VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
+                                   | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+                                   | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_DEPENDENCY_DEVICE_GROUP_BIT
+                                   , 1, &memory_barrier, 0, /*&buffer_barrier*/nullptr, 0, nullptr);
 
              vkCmdEndRenderPass(damaged_command_buffer);
              vkCmdBeginRenderPass(damaged_command_buffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -389,11 +400,23 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          auto queue_begin = std::chrono::high_resolution_clock::now();
          {
            ftk::ui::backend::vulkan_queues::lock_graphic_queue lock_queue(toplevel->window.queues);
+
+           auto now = std::chrono::high_resolution_clock::now();
+           auto diff = now - queue_begin;
+           std::cout << "Time locking queue "
+                     << std::chrono::duration_cast<std::chrono::milliseconds>(diff).count()
+                     << "ms" << std::endl;
          
            //std::cout << "submit graphics " << buffers.size() << std::endl;
            auto r = from_result(vkQueueSubmit(lock_queue.get_queue().vkqueue, 1, &submitInfo, executionFinished[imageIndex]));
            if (r != vulkan_error_code::success)
              throw std::system_error(make_error_code (r));
+
+           auto now2 = std::chrono::high_resolution_clock::now();
+           auto diff2 = now2 - now;
+           std::cout << "Time submitting to queue "
+                     << std::chrono::duration_cast<std::chrono::milliseconds>(diff2).count()
+                     << "ms" << std::endl;
          }
 
          {
@@ -417,21 +440,22 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              using fastdraw::output::vulkan::from_result;
              using fastdraw::output::vulkan::vulkan_error_code;
 
+             auto now = std::chrono::high_resolution_clock::now();
+             
              auto r = from_result (vkQueuePresentKHR(lock_queue.get_queue().vkqueue, &presentInfo));
              if (r != vulkan_error_code::success)
                throw std::system_error (make_error_code (r));
+
+             auto now2 = std::chrono::high_resolution_clock::now();
+             auto diff = now2 - now;
+             std::cout << "Time submitting presentation queue "
+                       << std::chrono::duration_cast<std::chrono::milliseconds>(diff).count()
+                       << "ms" << std::endl;
+             // r = from_result(vkQueueWaitIdle (lock_queue.get_queue().vkqueue));
+             // if (r != vulkan_error_code::success)
+             //   throw std::system_error (make_error_code (r));
            }
-
-           if (vkWaitForFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex], VK_FALSE, -1) == VK_TIMEOUT)
-           {
-             //std::cout << "Timeout waiting for fence" << std::endl;
-             throw -1;
-           }
-           vkResetFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex]);
-
-           vkFreeCommandBuffers (toplevel->window.voutput.device, commandPool, damaged_command_buffers.size()
-                                 , &damaged_command_buffers[0]);
-
+           
            {
              auto now = std::chrono::high_resolution_clock::now();
              auto diff = now - queue_begin;
@@ -440,6 +464,16 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
                        << "ms" << std::endl;
            }
 
+           if (vkWaitForFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex], VK_FALSE, -1) == VK_TIMEOUT)
+           {
+             //std::cout << "Timeout waiting for fence" << std::endl;
+             throw -1;
+           }
+           vkResetFences (toplevel->window.voutput.device, 1, &executionFinished[imageIndex]);
+           vkFreeCommandBuffers (toplevel->window.voutput.device, commandPool, damaged_command_buffers.size()
+                                 , &damaged_command_buffers[0]);
+
+           
            std::cout << "images " << toplevel->images.size() << std::endl;
            auto ssbo_data = toplevel->buffer_allocator.map (toplevel->image_ssbo_buffer);
            auto image_info_ptr = static_cast<ftk::ui::toplevel_window<Backend>::image_info*>(ssbo_data)
@@ -489,15 +523,9 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              
            }
            toplevel->buffer_allocator.unmap (toplevel->image_ssbo_buffer);
-           {
-             auto now = std::chrono::high_resolution_clock::now();
-             auto diff = now - last_time;
-             last_time = now;
-             std::cout << "Time between frames "
-                       << std::chrono::duration_cast<std::chrono::milliseconds>(diff).count()
-                       << "ms" << std::endl;
-           }
+
          }
+
      }
      std::cout << "Exiting render thread" << std::endl;
    });
