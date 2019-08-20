@@ -6,7 +6,7 @@ exe protocol_gen : protocol/src/generator.cpp protocol/src/algos.cpp /boost//pro
  ;
 
 exe vwm :  src/main.cpp xdg-shell/xdg-shell-protocol.c /vulkan//vulkan /x11//x11 /libuv//libuv /xkbcommon//xkbcommon /png//png /jpeg//jpeg
- /libdrm//libdrm /libkms//libkms /libudev//libudev /libinput//libinput /ftk//ftk /fastdraw//fastdraw /hb//hb /ft2//ft2
+ /libdrm//libdrm /libkms//libkms /libudev//libudev /libinput//libinput /ftk//ftk /hb//hb /ft2//ft2
  /wayland-client//wayland-client /wayland-scanner//wayland-scanner /wayland-protocols//wayland-protocols
  /wayland-server//wayland-server
  : <include>include <cxxflags>-std=c++2a <linkflags>-lstdc++fs <include>xdg-shell <include>wayland/include

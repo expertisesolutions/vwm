@@ -395,21 +395,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
            VkRect2D scissor = renderPassInfo.renderArea;
            vkCmdSetScissor (damaged_command_buffer, 0, 1, &scissor);
 
-           auto offset = 0;
-
-             std::vector<VkDeviceSize> offsets;
-             std::vector<VkBuffer> buffers;
-
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-             offsets.push_back(offset);
-             buffers.push_back(toplevel->vbuffer.get_buffer());
-
-             vkCmdBindVertexBuffers(damaged_command_buffer, 0, 4, &buffers[0], &offsets[0]);
              vkCmdDraw(damaged_command_buffer, 6, 1, 0, 0);
 
              VkMemoryBarrier memory_barrier = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};

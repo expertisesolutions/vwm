@@ -234,7 +234,8 @@ struct client
         if (s->render_token)
         {
           std::unique_lock<std::mutex> l(*render_mutex);
-          toplevel->images.erase (*s->render_token);
+          //toplevel->images.erase (*s->render_token);
+          toplevel->remove_image (*s->render_token);
           std::int32_t w, h;
           std::visit ([&w, &h] (auto&& buffer)
                       {
