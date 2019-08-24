@@ -1,11 +1,21 @@
+# Copyright 2019 Felipe Magno de Almeida
+# Distributed under the Boost Software License, Version 1.0.
+# (See accompanying file LICENSE_1_0.txt or copy at
+# http://www.boost.org/LICENSE_1_0.txt)
+
+using wayland-generator ;
 
 project vwm ;
 
-exe protocol_gen : protocol/src/generator.cpp protocol/src/algos.cpp /boost//program_options /pugixml//pugixml
- : <include>protocol/include <cxxflags>-std=c++2a
+wayland-generator wayland_header
+ : wayland/protocol/wayland.xml
+   wayland/protocol/xdg-shell.xml
+   wayland/protocol/linux-dmabuf-unstable-v1.xml
+   wayland/protocol/linux-explicit-synchronization-unstable-v1.xml
+   wayland/protocol/wayland-drm.xml
  ;
 
-exe vwm :  src/main.cpp xdg-shell/xdg-shell-protocol.c /vulkan//vulkan /x11//x11 /libuv//libuv /xkbcommon//xkbcommon /png//png /jpeg//jpeg
+exe vwm : src/main.cpp xdg-shell/xdg-shell-protocol.c /vulkan//vulkan /x11//x11 /libuv//libuv /xkbcommon//xkbcommon /png//png /jpeg//jpeg
  /libdrm//libdrm /libkms//libkms /libudev//libudev /libinput//libinput /ftk//ftk /hb//hb /ft2//ft2
  /wayland-client//wayland-client /wayland-scanner//wayland-scanner /wayland-protocols//wayland-protocols
  /wayland-server//wayland-server

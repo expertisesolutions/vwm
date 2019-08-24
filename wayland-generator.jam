@@ -1,0 +1,65 @@
+# Copyright 2019 Felipe Magno de Almeida
+# Distributed under the Boost Software License, Version 1.0.
+# (See accompanying file LICENSE_1_0.txt or copy at
+# http://www.boost.org/LICENSE_1_0.txt)
+
+import type ;
+import common ;
+import generators ;
+import toolset ;
+import project ;
+import targets ;
+
+type.register WAYLAND_XML : : XML ;
+#type.register WAYLAND_H : : H ;
+
+rule init ( )
+{
+  if ! $(.initialized)
+  {
+    .initialized = true ;
+    .protocol_target = [ exe protocol_gen : protocol/src/generator.cpp protocol/src/algos.cpp /boost//program_options /pugixml//pugixml
+     : <include>protocol/include <cxxflags>-std=c++2a ] ;
+
+    generators.register-composing wayland-generator.generate : WAYLAND_XML : HPP ;
+
+    IMPORT $(__name__) : wayland-generator : : wayland-generator ;
+  }
+
+  if ! $(.generator)
+  {
+    check-generator ;
+  }
+}
+
+local rule check-generator ( )
+{
+#  .glslangValidator =  [ common.get-invocation-command glslang : glslangValidator : $(.glslangValidator) ] ;
+}
+
+rule wayland-generator ( target : sources + )
+{
+  local project = [ project.current ] ;
+
+  local typed-sources = ;
+  for local s in $(sources)
+  {
+    typed-sources += [ targets.create-typed-target WAYLAND_XML : $(project) : $(s) : $(s) ] ;
+  }
+  targets.create-typed-target HPP : $(project) : $(target)
+   : $(typed-sources) ;
+}
+
+rule generate ( target : sources + : requirements * )
+{
+  ECHO generate $(target) sources $(sources) ;
+  generate $(target) : $(sources) ;
+  #NAME on $(target) = $(.glslangValidator) ;
+}
+
+actions generate
+{
+  #$(.glslangValidator) -V $(>) -o $(<)
+  ECHO $(<) ;
+  echo testing > "$(<)"
+}
