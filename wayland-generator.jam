@@ -9,57 +9,43 @@ import generators ;
 import toolset ;
 import project ;
 import targets ;
+import property-set ;
 
-type.register WAYLAND_XML : : XML ;
-#type.register WAYLAND_H : : H ;
+type.register WAYLAND_HPP : : HPP ;
 
 rule init ( )
 {
   if ! $(.initialized)
   {
     .initialized = true ;
-    .protocol_target = [ exe protocol_gen : protocol/src/generator.cpp protocol/src/algos.cpp /boost//program_options /pugixml//pugixml
+    .protocol-target = [ exe protocol_gen : protocol/src/generator.cpp protocol/src/algos.cpp /boost//program_options /pugixml//pugixml
      : <include>protocol/include <cxxflags>-std=c++2a ] ;
 
-    generators.register-composing wayland-generator.generate : WAYLAND_XML : HPP ;
+    generators.register-composing wayland-generator.generate : XML EXE : WAYLAND_HPP ;
 
     IMPORT $(__name__) : wayland-generator : : wayland-generator ;
   }
-
-  if ! $(.generator)
-  {
-    check-generator ;
-  }
-}
-
-local rule check-generator ( )
-{
-#  .glslangValidator =  [ common.get-invocation-command glslang : glslangValidator : $(.glslangValidator) ] ;
 }
 
 rule wayland-generator ( target : sources + )
 {
   local project = [ project.current ] ;
 
-  local typed-sources = ;
-  for local s in $(sources)
-  {
-    typed-sources += [ targets.create-typed-target WAYLAND_XML : $(project) : $(s) : $(s) ] ;
-  }
-  targets.create-typed-target HPP : $(project) : $(target)
-   : $(typed-sources) ;
+  targets.create-typed-target WAYLAND_HPP : $(project) : $(target) : $(.protocol-target) $(sources) ;
 }
 
 rule generate ( target : sources + : requirements * )
 {
-  ECHO generate $(target) sources $(sources) ;
-  generate $(target) : $(sources) ;
-  #NAME on $(target) = $(.glslangValidator) ;
+  generator = $(sources[1]) ;
+  xml-sources = $(sources[2-]) ;
+
+  NAME on $(target) = $(generator) ;
+  DEPENDS $(target) : $(sources) ;
+  action-generate $(target) : $(xml-sources) ;
+  common.Clean clean-all : $(target) ;
 }
 
-actions generate
+actions action-generate bind NAME
 {
-  #$(.glslangValidator) -V $(>) -o $(<)
-  ECHO $(<) ;
-  echo testing > "$(<)"
+  $(NAME) -o $(<) "-i$(>)"
 }

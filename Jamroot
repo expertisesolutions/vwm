@@ -20,7 +20,8 @@ exe vwm : src/main.cpp xdg-shell/xdg-shell-protocol.c /vulkan//vulkan /x11//x11 
  /wayland-client//wayland-client /wayland-scanner//wayland-scanner /wayland-protocols//wayland-protocols
  /wayland-server//wayland-server
  : <include>include <cxxflags>-std=c++2a <linkflags>-lstdc++fs <include>xdg-shell <include>wayland/include
+   <implicit-dependency>wayland_header
  ;
 
-stage stage : vwm protocol_gen ;
-stage generator-stage : protocol_gen ;
+#stage stage : vwm protocol_gen ;
+#stage generator-stage : protocol_gen ;
