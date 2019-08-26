@@ -234,18 +234,7 @@ struct client
         if (s->render_token)
         {
           std::unique_lock<std::mutex> l(*render_mutex);
-          //toplevel->images.erase (*s->render_token);
           toplevel->remove_image (*s->render_token);
-          std::int32_t w, h;
-          std::visit ([&w, &h] (auto&& buffer)
-                      {
-                        w = width (buffer);
-                        h = height (buffer);
-                      }, s->buffer);
-          std::cout << "pushed damage region " << s->pos_x << 'x' << s->pos_y
-                    << "-" << w << "x" << h << std::endl;
-          toplevel->framebuffers_damaged_regions[0].push_back({s->pos_x, s->pos_y, w, h});
-          toplevel->framebuffers_damaged_regions[1].push_back({s->pos_x, s->pos_y, w, h});
           l.unlock();
         }
       }
