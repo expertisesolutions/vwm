@@ -84,7 +84,6 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
        auto last_time = std::chrono::high_resolution_clock::now();
        using fastdraw::output::vulkan::from_result;
        using fastdraw::output::vulkan::vulkan_error_code;
-       VkSampler sampler = detail::render_thread_create_sampler (toplevel->window.voutput.device);
        auto const image_pipeline0 = fastdraw::output::vulkan::create_image_pipeline (toplevel->window.voutput
                                                                                     , 0);
        auto static const vkCmdPushDescriptorSetKHR_ptr
