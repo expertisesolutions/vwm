@@ -23,5 +23,4 @@ exe vwm : src/main.cpp xdg-shell/xdg-shell-protocol.c /vulkan//vulkan /x11//x11 
    <implicit-dependency>wayland_header
  ;
 
-#stage stage : vwm protocol_gen ;
-#stage generator-stage : protocol_gen ;
+stage stage : vwm ;
