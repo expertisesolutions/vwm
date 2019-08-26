@@ -327,9 +327,9 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              ssboInfo.buffer = toplevel->image_ssbo_buffer;
              ssboInfo.range = VK_WHOLE_SIZE;
 
-             VkDescriptorBufferInfo ssboZIndexInfo = {};
-             ssboZIndexInfo.buffer = toplevel->image_zindex_ssbo_buffer;
-             ssboZIndexInfo.range = VK_WHOLE_SIZE;
+             // VkDescriptorBufferInfo ssboZIndexInfo = {};
+             // ssboZIndexInfo.buffer = toplevel->image_zindex_ssbo_buffer;
+             // ssboZIndexInfo.range = VK_WHOLE_SIZE;
 
              VkDescriptorBufferInfo indirect_draw_info = {};
              indirect_draw_info.buffer = toplevel->indirect_draw_buffer;
@@ -338,7 +338,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
 
              std::cout << "offset of indirect draw info " << indirect_draw_info.offset << std::endl;
              
-             VkWriteDescriptorSet descriptorWrites[3] = {};
+             VkWriteDescriptorSet descriptorWrites[2] = {};
                              
              descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
              descriptorWrites[0].dstSet = 0;
@@ -347,19 +347,19 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
              descriptorWrites[0].descriptorCount = 1;
              descriptorWrites[0].pBufferInfo = &ssboInfo;
 
+             // descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+             // descriptorWrites[1].dstSet = 0;
+             // descriptorWrites[1].dstBinding = 1;
+             // descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+             // descriptorWrites[1].descriptorCount = 1;
+             // descriptorWrites[1].pBufferInfo = nullptr;//&ssboZIndexInfo;
+
              descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
              descriptorWrites[1].dstSet = 0;
-             descriptorWrites[1].dstBinding = 1;
+             descriptorWrites[1].dstBinding = 2;
              descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
              descriptorWrites[1].descriptorCount = 1;
-             descriptorWrites[1].pBufferInfo = &ssboZIndexInfo;
-
-             descriptorWrites[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-             descriptorWrites[2].dstSet = 0;
-             descriptorWrites[2].dstBinding = 2;
-             descriptorWrites[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-             descriptorWrites[2].descriptorCount = 1;
-             descriptorWrites[2].pBufferInfo = &indirect_draw_info;
+             descriptorWrites[1].pBufferInfo = &indirect_draw_info;
              
              vkCmdBindDescriptorSets (damaged_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS
                                       , indirect_pipeline.pipeline_layout
