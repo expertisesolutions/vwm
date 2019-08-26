@@ -1,0 +1,3 @@
+[submodule "deps/ftk"]
+	path = deps/ftk
+	url = git@github.com:expertisesolutions/ftk
