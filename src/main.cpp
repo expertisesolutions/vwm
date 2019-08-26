@@ -18,8 +18,8 @@
 //#include <libudev.h>
 #include <uv.h>
 #include <xkbcommon/xkbcommon.h>
-#include <xf86drm.h>
-#include <xf86drmMode.h>
+//#include <xf86drm.h>
+//#include <xf86drmMode.h>
 
 #include <cassert>
 #include <iostream>
@@ -47,7 +47,6 @@
 #include <vwm/backend/xlib_mouse.hpp>
 #include <vwm/uv/detail/poll.hpp>
 #include <vwm/uv/detail/timer.hpp>
-#include <vwm/wayland/compositor.hpp>
 #include <vwm/theme.hpp>
 
 #include <vwm/wayland/client.hpp>
