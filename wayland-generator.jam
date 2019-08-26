@@ -18,7 +18,7 @@ rule init ( )
   if ! $(.initialized)
   {
     .initialized = true ;
-    .protocol-target = [ exe protocol_gen : protocol/src/generator.cpp protocol/src/algos.cpp /boost//program_options /pugixml//pugixml
+    .protocol-target = [ exe protocol_gen : protocol/src/generator.cpp protocol/src/algos.cpp /boost_program_options//boost_program_options /pugixml//pugixml
      : <include>protocol/include <cxxflags>-std=c++2a ] ;
 
     generators.register-composing wayland-generator.generate : XML EXE : WAYLAND_HPP ;
