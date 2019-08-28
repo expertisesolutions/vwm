@@ -13,6 +13,18 @@ if ! $(ftk)
   use-project ftk : deps/ftk ;
 }
 
+local using-conan = [ GLOB $(__file__:D) : conanbuildinfo.jam : downcase ] ;
+
+if ! $(using-conan)
+{
+  local boost = [ project.find boost_program_options : $(current-pwd) ] ;
+  if ! $(boost)
+  {
+    project boost_program_options ;
+    lib boost_program_options : : <name>boost_program_options ;
+  }
+}
+
 using wayland-generator ;
 
 project vwm ;
