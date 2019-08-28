@@ -85,19 +85,24 @@ int main(void) {
   auto keyboard = vwm::backend::xlib::keyboard{};
 
   backend_type backend({&loop});
-  ftk::ui::toplevel_window<backend_type> w(backend);
-
+  std::filesystem::path res_path = "deps/ftk/compiled-res";
+  auto vulkan_window = backend.create_window (1280, 1000, res_path); 
   ftk::ui::backend::vulkan_submission_pool<executor_type>
-    vulkan_thread_pool (w.window.voutput.device
-                        , &w.window.queues
-                        , thread_pool.executor()
-                        , 4 /* thread count */);
+    vulkan_submission_pool (vulkan_window.voutput.device
+                            , &vulkan_window.queues
+                            , thread_pool.executor()
+                            , 4 /* thread count */);
+  
+  auto empty_image = ftk::ui::backend::load_empty_image_view
+    (vulkan_window.voutput.device, vulkan_window.voutput.physical_device
+     , vulkan_submission_pool).get();
+  ftk::ui::toplevel_window<backend_type&> w(vulkan_window, res_path, empty_image.image_view);
   
   vwm::theme<fastdraw::image_loader::extension_loader
              , ftk::ui::backend::vulkan_image_loader<executor_type>>
     theme {{},
            {w.window.voutput.device, w.window.voutput.physical_device
-            , &vulkan_thread_pool}
+            , &vulkan_submission_pool}
            , std::filesystem::current_path()};
 
   // pc::future<ftk::ui::backend::vulkan_image> mouse_cursor = theme[vwm::theme_image::pointer];
@@ -107,9 +112,10 @@ int main(void) {
 
   auto background_img = background.get();
 
-  w.load_background ({background_img.image_view, 0, 0
-                      , static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
-                      , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
+  w.append_component ({0, 0
+                       , static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
+                       , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)
+                       , ftk::ui::image_component{background_img.image_view}});
 
   // w.framebuffers_damaged_regions[0].push_back
   //   ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
@@ -117,7 +123,7 @@ int main(void) {
   // w.framebuffers_damaged_regions[1].push_back
   //   ({0, 0, static_cast<int32_t>(w.window.voutput.swapChainExtent.width)
   //     , static_cast<int32_t>(w.window.voutput.swapChainExtent.height)});
-  w.append_image ({background_img.image_view, 100, 100, 160, 90});
+  w.append_component ({100, 100, 160, 90, ftk::ui::image_component{background_img.image_view}});
   vwm::render_dirty (dirty, render_mutex, condvar)();
 
   bool is_moving_window = false;
@@ -140,7 +146,7 @@ int main(void) {
        }
      });
 
-  auto mouse_iterator = w.images.end();
+  auto mouse_iterator = w.components.end();
 
 #if 1
   vwm::backend::xlib::mouse mouse;
@@ -167,10 +173,10 @@ int main(void) {
        }
 
        std::unique_lock<std::mutex> l (render_mutex);
-       if (mouse_iterator == w.images.end())
+       if (mouse_iterator == w.components.end())
        {
          std::cout << "mouse adding new mouse image" << std::endl;
-         mouse_iterator = w.append_image ({mouse_cursor_.image_view, ev.x, ev.y, 32, 32});
+         mouse_iterator = w.append_component ({ev.x, ev.y, 32, 32, ftk::ui::image_component{mouse_cursor_.image_view}});
          //vwm::render_dirty (dirty, mutex, condvar)();
        }
        else
@@ -180,9 +186,9 @@ int main(void) {
          // change vertex buffer ?
          // mouse_iterator->x = ev.x;
          // mouse_iterator->y = ev.y;
-         w.move_image (mouse_iterator, ev.x, ev.y);
+         w.move_component (mouse_iterator, ev.x, ev.y);
        }
-       std::cout << "please render mouse (" << w.images.size() << ") at " << ev.x << "x" << ev.y << std::endl;
+       std::cout << "please render mouse (" << w.components.size() << ") at " << ev.x << "x" << ev.y << std::endl;
        vwm::render_dirty (dirty, l, condvar)();
      });
 #endif

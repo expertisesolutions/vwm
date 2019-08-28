@@ -50,7 +50,7 @@ struct client
   typedef ftk::ui::backend::vulkan<ftk::ui::backend::uv, WindowingBase> backend_type;
   uv_loop_t* loop;
   backend_type* backend;
-  ftk::ui::toplevel_window<backend_type>* toplevel;
+  ftk::ui::toplevel_window<backend_type&>* toplevel;
   std::uint32_t serial;
   std::uint32_t output_id, keyboard_id, focused_surface_id, old_focused_surface_id;
   std::uint32_t last_surface_entered_id;
@@ -62,9 +62,9 @@ struct client
   std::int32_t surface_start_x_offset = 30, surface_start_y_offset = 30;
 
   using token_type = pc::future<ftk::ui::backend::vulkan_image>;
-  using surface_type = surface<token_type, typename ftk::ui::toplevel_window<backend_type>::image_iterator>;
+  using surface_type = surface<token_type, typename ftk::ui::toplevel_window<backend_type>::component_iterator>;
 
-  client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type>* toplevel
+  client (int fd, uv_loop_t* loop, backend_type* backend, ftk::ui::toplevel_window<backend_type&>* toplevel
           , Keyboard* keyboard, std::function<void()> render_dirty
           , ftk::ui::backend::vulkan_image_loader<Executor>* image_loader
           , std::mutex* render_mutex
@@ -234,7 +234,7 @@ struct client
         if (s->render_token)
         {
           std::unique_lock<std::mutex> l(*render_mutex);
-          toplevel->remove_image (*s->render_token);
+          toplevel->remove_component (*s->render_token);
           l.unlock();
         }
       }
@@ -1019,8 +1019,8 @@ struct client
             auto value = s->load_token.get().image_view;
             s->loaded = true;
             std::cout << "adding image from client to render" << std::endl;
-            auto iterator = toplevel->append_image
-              ({value, s->pos_x, s->pos_y, (*buffer)->width, (*buffer)->height});
+            auto iterator = toplevel->append_component
+              ({s->pos_x, s->pos_y, (*buffer)->width, (*buffer)->height, ftk::ui::image_component{value}});
             s->render_token = iterator;
           }
           else

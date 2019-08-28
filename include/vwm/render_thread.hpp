@@ -238,7 +238,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
          }
 
          unsigned int i = 0;
-         for (auto&& image : toplevel->images)
+         for (auto&& image : toplevel->components)
          {
            if (image.must_draw[imageIndex])
            {
@@ -323,7 +323,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
 
            {
              VkDescriptorBufferInfo ssboInfo = {};
-             ssboInfo.buffer = toplevel->image_ssbo_buffer;
+             ssboInfo.buffer = toplevel->component_ssbo_buffer;
              ssboInfo.range = VK_WHOLE_SIZE;
 
              // VkDescriptorBufferInfo ssboZIndexInfo = {};
@@ -380,7 +380,7 @@ std::thread render_thread (ftk::ui::toplevel_window<Backend>* toplevel, bool& di
                 , indirect_pipeline.pipeline_layout
                 , 2 /* from 1 */, sizeof(descriptorWrites)/sizeof(descriptorWrites[0]), &descriptorWrites[0]);
 
-             uint32_t image_size = toplevel->images.size();
+             uint32_t image_size = toplevel->components.size();
              vkCmdPushConstants(damaged_command_buffer
                                 , indirect_pipeline.pipeline_layout
                                 , VK_SHADER_STAGE_VERTEX_BIT
